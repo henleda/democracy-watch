@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 245, 245, 245;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+  }
+
+  .card {
+    @apply bg-white rounded-lg shadow-md p-6;
+  }
+
+  .party-badge-republican {
+    @apply bg-republican-light text-republican px-2 py-0.5 rounded text-sm font-medium;
+  }
+
+  .party-badge-democrat {
+    @apply bg-democrat-light text-democrat px-2 py-0.5 rounded text-sm font-medium;
+  }
+
+  .party-badge-independent {
+    @apply bg-independent-light text-independent px-2 py-0.5 rounded text-sm font-medium;
+  }
+}

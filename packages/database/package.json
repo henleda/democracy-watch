@@ -1,0 +1,21 @@
+{
+  "name": "@democracy-watch/database",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "migrate": "ts-node src/migrate.ts",
+    "seed": "ts-node src/seed.ts",
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.712.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.11.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}

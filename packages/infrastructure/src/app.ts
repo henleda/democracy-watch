@@ -5,6 +5,8 @@ import { NetworkStack } from './stacks/network-stack';
 import { SecretsStack } from './stacks/secrets-stack';
 import { DatabaseStack } from './stacks/database-stack';
 import { StorageStack } from './stacks/storage-stack';
+import { ApiStack } from './stacks/api-stack';
+import { IngestionStack } from './stacks/ingestion-stack';
 
 const app = new cdk.App();
 
@@ -44,5 +46,33 @@ const databaseStack = new DatabaseStack(app, `${prefix}-Database`, {
   description: 'Aurora PostgreSQL Serverless v2 with pgvector',
 });
 databaseStack.addDependency(networkStack);
+
+// API stack (Phase 1)
+const apiStack = new ApiStack(app, `${prefix}-Api`, {
+  env,
+  config,
+  vpc: networkStack.vpc,
+  lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
+  databaseSecretArn: databaseStack.clusterSecretArn,
+  description: 'REST API Gateway and Lambda handlers',
+});
+apiStack.addDependency(networkStack);
+apiStack.addDependency(databaseStack);
+
+// Ingestion stack (Phase 1)
+const ingestionStack = new IngestionStack(app, `${prefix}-Ingestion`, {
+  env,
+  config,
+  vpc: networkStack.vpc,
+  lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
+  databaseSecretArn: databaseStack.clusterSecretArn,
+  congressApiKeySecret: secretsStack.congressApiKeySecret,
+  rawDataBucket: storageStack.rawDataBucket,
+  description: 'Data ingestion Lambdas and EventBridge schedules',
+});
+ingestionStack.addDependency(networkStack);
+ingestionStack.addDependency(databaseStack);
+ingestionStack.addDependency(secretsStack);
+ingestionStack.addDependency(storageStack);
 
 app.synth();
