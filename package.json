@@ -1,0 +1,29 @@
+{
+  "name": "democracy-watch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Congressional accountability platform correlating voting records against promises and funding",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/democracy-watch"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "db:migrate": "pnpm --filter @democracy-watch/database migrate",
+    "db:seed": "pnpm --filter @democracy-watch/database seed",
+    "cdk": "pnpm --filter @democracy-watch/infrastructure cdk",
+    "deploy": "pnpm --filter @democracy-watch/infrastructure deploy"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

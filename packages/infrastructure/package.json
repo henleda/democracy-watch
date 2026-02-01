@@ -1,0 +1,29 @@
+{
+  "name": "@democracy-watch/infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cdk": "cdk",
+    "deploy": "cdk deploy --all",
+    "deploy:network": "cdk deploy DemocracyWatch-Network",
+    "deploy:database": "cdk deploy DemocracyWatch-Database",
+    "deploy:secrets": "cdk deploy DemocracyWatch-Secrets",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "clean": "rm -rf dist cdk.out"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.178.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "aws-cdk": "^2.178.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
