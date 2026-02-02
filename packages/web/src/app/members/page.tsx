@@ -1,5 +1,7 @@
+import { Suspense } from 'react';
 import { getMembers } from '@/lib/api';
 import { MemberCard } from '@/components/MemberCard';
+import { MemberFilters } from '@/components/MemberFilters';
 import Link from 'next/link';
 
 interface PageProps {
@@ -15,14 +17,6 @@ export const metadata = {
   title: 'All Members of Congress | Democracy Watch',
   description: 'Browse all current members of the U.S. Congress',
 };
-
-const STATES = [
-  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
-  'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
-  'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-  'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
-];
 
 export default async function MembersPage({ searchParams }: PageProps) {
   const page = parseInt(searchParams.page || '1', 10);
@@ -41,89 +35,23 @@ export default async function MembersPage({ searchParams }: PageProps) {
   const total = response.meta?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
-  const buildUrl = (params: Record<string, string | undefined>) => {
-    const searchParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value) searchParams.set(key, value);
-    });
-    return `/members?${searchParams.toString()}`;
+  const buildPaginationUrl = (newPage: number) => {
+    const params = new URLSearchParams();
+    if (searchParams.state) params.set('state', searchParams.state);
+    if (searchParams.party) params.set('party', searchParams.party);
+    if (searchParams.chamber) params.set('chamber', searchParams.chamber);
+    params.set('page', String(newPage));
+    return `/members?${params.toString()}`;
   };
 
   return (
     <div className="container mx-auto px-4 py-12">
       <h1 className="text-3xl font-bold mb-8">Members of Congress</h1>
 
-      {/* Filters */}
-      <div className="card mb-8">
-        <div className="flex flex-wrap gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              State
-            </label>
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2"
-              defaultValue={searchParams.state || ''}
-              onChange={(e) => {
-                window.location.href = buildUrl({
-                  ...searchParams,
-                  state: e.target.value || undefined,
-                  page: undefined,
-                });
-              }}
-            >
-              <option value="">All States</option>
-              {STATES.map((state) => (
-                <option key={state} value={state}>
-                  {state}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Party
-            </label>
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2"
-              defaultValue={searchParams.party || ''}
-              onChange={(e) => {
-                window.location.href = buildUrl({
-                  ...searchParams,
-                  party: e.target.value || undefined,
-                  page: undefined,
-                });
-              }}
-            >
-              <option value="">All Parties</option>
-              <option value="Democrat">Democrat</option>
-              <option value="Republican">Republican</option>
-              <option value="Independent">Independent</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Chamber
-            </label>
-            <select
-              className="border border-gray-300 rounded-lg px-3 py-2"
-              defaultValue={searchParams.chamber || ''}
-              onChange={(e) => {
-                window.location.href = buildUrl({
-                  ...searchParams,
-                  chamber: e.target.value || undefined,
-                  page: undefined,
-                });
-              }}
-            >
-              <option value="">Both Chambers</option>
-              <option value="Senate">Senate</option>
-              <option value="House">House</option>
-            </select>
-          </div>
-        </div>
-      </div>
+      {/* Filters - Client Component wrapped in Suspense for SSR */}
+      <Suspense fallback={<div className="card mb-8 h-20 animate-pulse bg-gray-100" />}>
+        <MemberFilters />
+      </Suspense>
 
       {/* Results */}
       {members.length === 0 ? (
@@ -145,7 +73,7 @@ export default async function MembersPage({ searchParams }: PageProps) {
             <div className="flex justify-center gap-2">
               {page > 1 && (
                 <Link
-                  href={buildUrl({ ...searchParams, page: String(page - 1) })}
+                  href={buildPaginationUrl(page - 1)}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -156,7 +84,7 @@ export default async function MembersPage({ searchParams }: PageProps) {
               </span>
               {page < totalPages && (
                 <Link
-                  href={buildUrl({ ...searchParams, page: String(page + 1) })}
+                  href={buildPaginationUrl(page + 1)}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next
