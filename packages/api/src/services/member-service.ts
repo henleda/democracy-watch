@@ -259,14 +259,24 @@ export class MemberService {
   ): Promise<PaginatedResponse<MemberVote>> {
     const { limit = 20, offset = 0 } = options;
 
+    // First resolve the member's UUID (memberId can be UUID or bioguide_id)
+    const memberLookup = await queryOne<{ id: string }>(
+      `SELECT id FROM members.members WHERE id::text = $1 OR bioguide_id = $1`,
+      [memberId]
+    );
+
+    if (!memberLookup) {
+      return { data: [], meta: { total: 0, limit, offset, hasMore: false } };
+    }
+
+    const resolvedMemberId = memberLookup.id;
+
     const countQuery = `
       SELECT COUNT(*) as count
       FROM voting.votes v
-      WHERE v.member_id = $1 OR EXISTS (
-        SELECT 1 FROM members.members m WHERE m.bioguide_id = $1 AND m.id = v.member_id
-      )
+      WHERE v.member_id = $1
     `;
-    const countResult = await queryOne<{ count: string }>(countQuery, [memberId]);
+    const countResult = await queryOne<{ count: string }>(countQuery, [resolvedMemberId]);
     const total = parseInt(countResult?.count || '0');
 
     const dataQuery = `
@@ -279,14 +289,12 @@ export class MemberService {
       FROM voting.votes v
       JOIN voting.roll_calls rc ON rc.id = v.roll_call_id
       LEFT JOIN voting.bills b ON b.id = v.bill_id
-      WHERE v.member_id = $1 OR EXISTS (
-        SELECT 1 FROM members.members m WHERE m.bioguide_id = $1 AND m.id = v.member_id
-      )
+      WHERE v.member_id = $1
       ORDER BY COALESCE(v.vote_date, rc.vote_date) DESC NULLS LAST
       LIMIT $2 OFFSET $3
     `;
 
-    const rows = await query<Record<string, unknown>>(dataQuery, [memberId, limit, offset]);
+    const rows = await query<Record<string, unknown>>(dataQuery, [resolvedMemberId, limit, offset]);
 
     const data: MemberVote[] = rows.map((row) => ({
       id: row.id as string,
