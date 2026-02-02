@@ -5,7 +5,7 @@
   "scripts": {
     "migrate": "ts-node src/migrate.ts",
     "seed": "ts-node src/seed.ts",
-    "build": "tsc",
+    "build": "esbuild src/migrate-handler.ts --bundle --platform=node --target=node20 --outfile=dist/migrate-handler.js && cp -r src/migrations dist/ && cp -r src/seeds dist/",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -15,6 +15,7 @@
   "devDependencies": {
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
+    "esbuild": "^0.27.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
   }

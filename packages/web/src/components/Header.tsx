@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -7,32 +8,53 @@ export function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <header className="bg-white shadow-sm">
-      <nav className="container mx-auto px-4 py-4">
+    <header className="bg-gradient-to-r from-brand-navy to-primary-800 shadow-lg">
+      <nav className="container mx-auto px-4 py-3">
         <div className="flex items-center justify-between">
-          <Link href="/" className="text-xl font-bold text-primary-700">
-            Democracy Watch
+          <Link href="/" className="flex items-center gap-3 group">
+            <Image
+              src="/logo.webp"
+              alt="Democracy Watch"
+              width={48}
+              height={48}
+              className="rounded-lg group-hover:scale-105 transition-transform"
+              priority
+            />
+            <div className="hidden sm:block">
+              <span className="text-xl font-bold text-white">
+                Democracy<span className="text-brand-gold">Watch</span>
+              </span>
+              <span className="block text-xs text-gray-300">
+                They Work For You
+              </span>
+            </div>
           </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-6">
             <Link
               href="/members"
-              className="text-gray-600 hover:text-gray-900"
+              className="text-gray-200 hover:text-white transition-colors"
             >
               Members
             </Link>
-            <Link href="/votes" className="text-gray-600 hover:text-gray-900">
-              Recent Votes
+            <Link
+              href="/rankings"
+              className="text-gray-200 hover:text-white transition-colors"
+            >
+              Rankings
             </Link>
-            <Link href="/about" className="text-gray-600 hover:text-gray-900">
+            <Link
+              href="/about"
+              className="text-gray-200 hover:text-white transition-colors"
+            >
               About
             </Link>
           </div>
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2"
+            className="md:hidden p-2 text-white"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label="Toggle menu"
           >
@@ -63,24 +85,24 @@ export function Header() {
 
         {/* Mobile Navigation */}
         {isMobileMenuOpen && (
-          <div className="md:hidden mt-4 pb-4 space-y-4">
+          <div className="md:hidden mt-4 pb-4 space-y-4 border-t border-primary-700 pt-4">
             <Link
               href="/members"
-              className="block text-gray-600 hover:text-gray-900"
+              className="block text-gray-200 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               Members
             </Link>
             <Link
-              href="/votes"
-              className="block text-gray-600 hover:text-gray-900"
+              href="/rankings"
+              className="block text-gray-200 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              Recent Votes
+              Rankings
             </Link>
             <Link
               href="/about"
-              className="block text-gray-600 hover:text-gray-900"
+              className="block text-gray-200 hover:text-white"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               About

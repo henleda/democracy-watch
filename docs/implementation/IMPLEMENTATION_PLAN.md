@@ -16,7 +16,10 @@
 - Frontend: **Vercel** (domain: democracy.watch)
 - Zip mapping: **Census Bureau API**
 - Finance scope: **2024 cycle only** (expandable)
+- Finance data: **FEC API + AI classification** (OpenSecrets no longer available)
+- Industry classification: **Claude Haiku** with caching (~$0.01/50 donors)
 - Rate limits: **Queue-based ingestion** (upgrade path to bulk data)
+- Branding: **Logo** at `/dw-logo.webp` - Capitol dome with magnifying glass
 
 ---
 
@@ -56,6 +59,16 @@
 │  └───────────────┘  └───────────────┘  └───────────────┘       │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Reference Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `/docs/FINANCE_PIPELINE.md` | Full architecture for FEC ingestion + AI classification |
+| `/docs/INDUSTRY_TAXONOMY.md` | 17 sectors, 52 industries with codes and SQL seeds |
+| `/docs/INDUSTRY_CLASSIFICATION_PROMPT.md` | Claude Haiku prompt template for donor classification |
 
 ---
 
@@ -266,6 +279,12 @@ packages/web/
 - shadcn/ui components
 - TanStack Query (client-side data fetching)
 
+**Branding**:
+- Logo: `/dw-logo.webp` → copy to `/packages/web/public/logo.webp`
+- Brand colors: Navy blue (#1e3a5f), Red (#dc2626), Gold (#f59e0b)
+- Tagline: "They Work For You"
+- Logo features: Capitol dome with magnifying glass, bar chart, dollar sign
+
 #### 3.3 Vercel Deployment
 
 1. Connect GitHub repo to Vercel
@@ -296,7 +315,7 @@ allowOrigins: [
 
 ## Phase 2: Platforms & Finance (Weeks 4-5)
 
-### Week 4: Party Platforms
+### Week 4: Party Platforms & AI Infrastructure
 
 #### 4.1 Database Migration
 
@@ -311,9 +330,10 @@ Creates:
 **File**: `packages/infrastructure/src/stacks/ai-stack.ts`
 
 Resources:
-- Bedrock IAM permissions for Claude and Titan models
+- Bedrock IAM permissions for Claude (Haiku/Sonnet) and Titan models
 - Lambda for embedding generation
-- Lambda for alignment analysis
+- Lambda for platform alignment analysis
+- Lambda for donor industry classification (new)
 
 #### 4.3 AI Package
 
@@ -325,8 +345,10 @@ packages/ai/src/
 │   └── parse-platform.ts    # Extract planks using Claude Sonnet
 ├── embeddings/
 │   └── embed-planks.ts      # Generate Titan embeddings
-└── alignment/
-    └── analyze-alignment.ts  # Vote-plank alignment scoring
+├── alignment/
+│   └── analyze-alignment.ts  # Vote-plank alignment scoring
+└── finance/
+    └── classify-donors.ts    # AI industry classification (new)
 ```
 
 **Platform Processing Pipeline**:
@@ -345,63 +367,110 @@ For each member vote:
 
 ---
 
-### Week 5: Campaign Finance
+### Week 5: Campaign Finance (AI-Powered Classification)
+
+> **Note**: OpenSecrets API is no longer available. We use AI-powered industry classification via Claude Haiku as a replacement. See `docs/FINANCE_PIPELINE.md` for full architecture.
 
 #### 5.1 Database Migration
 
 **File**: `packages/database/src/migrations/006_finance_schema.sql`
 
 Creates:
-- `finance.industries` - OpenSecrets industry codes (~80 categories)
-- `finance.organizations` - PACs and committees
-- `finance.contributions` - Individual contributions
-- `finance.member_industry_totals` - Aggregated by industry
 
-#### 5.2 External API Clients
+**Reference Tables**:
+- `finance.ref_sectors` - 17 industry sectors (TECH, HLTH, FNCE, etc.)
+- `finance.ref_industries` - 52 specific industries (TECH01, HLTH03, etc.)
+- `finance.id_crosswalk` - FEC candidate ID → bioguide_id mapping
 
-| API | Rate Limit | Strategy |
-|-----|------------|----------|
-| FEC OpenFEC | 1000/hr | SQS queue, ~3 days for 535 members |
-| OpenSecrets | 200/day | Daily batch, ~3 days for 535 members |
+**Staging Tables**:
+- `finance.raw_contributions` - Raw FEC Schedule A data
+- `finance.raw_lobbying_registrations` - Senate LDA registrations
+- `finance.raw_lobbying_reports` - Quarterly lobbying reports
+
+**Classification Tables**:
+- `finance.classification_cache` - Employer/occupation → industry mapping cache
+- `finance.classified_contributions` - Contributions with AI-assigned industry codes
+
+**Aggregation Tables**:
+- `finance.member_industry_totals` - Aggregated totals per member/industry/cycle
+- `finance.member_top_donors` - Top 10 donors per member
+- `finance.member_funding_summary` - Summary stats (total raised, small donor %, etc.)
+
+See `docs/INDUSTRY_TAXONOMY.md` for the complete sector/industry hierarchy.
+
+#### 5.2 External Data Sources
+
+| Source | Rate Limit | Data |
+|--------|------------|------|
+| FEC OpenFEC API | 1000/hr | Real-time contributions |
+| FEC Bulk Downloads | Weekly | Historical backfill |
+| Senate LDA Database | Respectful (~1 req/sec) | Lobbying data |
 
 **Files**:
-- `packages/ingestion/src/fec/fec-client.ts`
-- `packages/ingestion/src/opensecrets/opensecrets-client.ts`
+- `packages/ingestion/src/fec/fec-client.ts` - OpenFEC API client
+- `packages/ingestion/src/fec/bulk-loader.ts` - Bulk file processor
+- `packages/ingestion/src/lobbying/lda-client.ts` - Senate LDA client
 
-#### 5.3 Ingestion Lambdas
+#### 5.3 AI Industry Classification Pipeline
 
-- `ingest-fec.ts` - SQS-triggered, processes contribution batches
-- `ingest-opensecrets.ts` - Daily EventBridge schedule (2 AM)
+**File**: `packages/ai/src/finance/classify-donors.ts`
+
+See `docs/INDUSTRY_CLASSIFICATION_PROMPT.md` for the full prompt template.
+
+**Pipeline**:
+1. **Pre-classification rules** - Skip obvious cases (RETIRED, NOT EMPLOYED, STUDENT)
+2. **Cache lookup** - Check `classification_cache` for employer/occupation match
+3. **AI classification** - Send uncached donors to Claude Haiku in batches of 50
+4. **Cache update** - Store new classifications for future lookups
+
+**Cost Optimization**:
+- Pre-rules handle ~15% of donors (free)
+- Cache achieves 70%+ hit rate after training period
+- Haiku costs ~$0.01-0.02 per 50 donors
+
+#### 5.4 Ingestion Lambdas
+
+| Lambda | Trigger | Purpose |
+|--------|---------|---------|
+| `finance-ingest-contributions` | EventBridge (6hr) | Fetch new FEC contributions |
+| `finance-ingest-lobbying` | EventBridge (daily) | Fetch Senate LDA data |
+| `finance-classify-donors` | EventBridge (6hr) | Classify unprocessed contributions |
+| `finance-aggregate` | EventBridge (daily 4am) | Refresh aggregation tables |
 
 **Scope**: 2024 election cycle only (expandable to more cycles later)
 
-#### 5.4 Analytics Package
+#### 5.5 Analytics Package
 
 **Location**: `packages/analytics/`
 
 ```
 packages/analytics/src/
 ├── finance/
-│   └── calculate-industry-totals.ts
+│   ├── calculate-industry-totals.ts   # Aggregate by industry
+│   ├── calculate-rankings.ts          # Chamber percentiles
+│   └── calculate-hhi.ts               # Funding concentration index
 └── platform/
     └── calculate-alignment.ts
 ```
 
-#### 5.5 API Additions
+#### 5.6 API Additions
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/rankings` | Ranked lists (party_alignment, funding) |
+| GET | `/rankings` | Ranked lists (party_alignment, funding_concentration) |
+| GET | `/members/{id}/funding` | Industry breakdown + top donors |
 | GET | `/members/{id}/platform-alignment` | Alignment details |
 
-#### 5.6 Frontend Additions
+#### 5.7 Frontend Additions
 
 **Components**:
-- `FundingBreakdown.tsx` - Top 5 industries bar chart
+- `FundingBreakdown.tsx` - Top 5 industries bar chart (using our taxonomy)
+- `TopDonors.tsx` - Top 10 donors list
+- `FundingSummary.tsx` - Total raised, small/large donor %, in/out-of-state
 - `PlatformAlignmentTab.tsx` - Score + misaligned votes
 
 **Pages**:
-- `/rankings` - Party rebel leaderboard
+- `/rankings` - Party rebel leaderboard + funding concentration rankings
 
 #### Phase 2 Verification Checklist
 
@@ -409,8 +478,11 @@ packages/analytics/src/
 - [ ] All planks have 1024-dim embeddings
 - [ ] Platform alignment scores calculated for all members
 - [ ] `/rankings?type=party_alignment` returns data
+- [ ] Finance schema migrated with all staging/classification tables
+- [ ] Industry taxonomy seeded (17 sectors, 52 industries)
 - [ ] FEC contributions loaded for 100+ members
-- [ ] OpenSecrets industry totals for 100+ members
+- [ ] AI classification running with 70%+ cache hit rate
+- [ ] `member_industry_totals` populated
 - [ ] Funding breakdown visible on member detail pages
 
 ---
@@ -616,7 +688,7 @@ packages/
 │       ├── 003_members_schema.sql  ○ Phase 1
 │       ├── 004_voting_schema.sql   ○ Phase 1
 │       ├── 005_platforms.sql       ○ Phase 2
-│       ├── 006_finance.sql         ○ Phase 2
+│       ├── 006_finance.sql         ○ Phase 2 (includes AI classification tables)
 │       ├── 007_promises.sql        ○ Phase 3
 │       └── 008_analytics.sql       ○ Phase 3
 │
@@ -629,7 +701,10 @@ packages/
 │   └── src/
 │       ├── congress/               ○ Phase 1
 │       ├── fec/                    ○ Phase 2
-│       └── opensecrets/            ○ Phase 2
+│       │   ├── fec-client.ts       # OpenFEC API client
+│       │   └── bulk-loader.ts      # FEC bulk file processor
+│       └── lobbying/               ○ Phase 2
+│           └── lda-client.ts       # Senate LDA client
 │
 ├── api/                            # REST API
 │   └── src/handlers/
@@ -640,8 +715,15 @@ packages/
 ├── ai/                             # Bedrock AI
 │   └── src/
 │       ├── platforms/              ○ Phase 2
+│       │   └── parse-platform.ts   # Claude Sonnet plank extraction
 │       ├── embeddings/             ○ Phase 2
+│       │   └── embed-planks.ts     # Titan embeddings
 │       ├── alignment/              ○ Phase 2
+│       │   └── analyze-alignment.ts
+│       ├── finance/                ○ Phase 2 (NEW)
+│       │   ├── classify-donors.ts  # Claude Haiku classification
+│       │   ├── taxonomy.ts         # Industry codes/names
+│       │   └── pre-rules.ts        # RETIRED/NOT EMPLOYED rules
 │       └── deviations/             ○ Phase 3
 │
 ├── analytics/                      # Score calculations
@@ -669,13 +751,22 @@ packages/
 | Service | Cost |
 |---------|------|
 | Aurora Serverless (0.5-2 ACU) | $50-100 |
-| Lambda invocations | $5 |
+| Lambda invocations | $10-20 |
 | API Gateway | $5 |
-| S3 storage | $1 |
+| S3 storage (incl. FEC bulk files) | $5-10 |
 | NAT Gateway | $35 |
-| **Subtotal AWS** | **~$100-150** |
+| **Subtotal AWS Infra** | **~$105-170** |
 | Vercel (free tier) | $0 |
-| **Total** | **~$100-150/month** |
+| **Subtotal Hosting** | **~$105-170/month** |
+
+### Recurring AI Costs (Monthly)
+
+| Task | Cost |
+|------|------|
+| Donor classification (Claude Haiku) | $50-100 |
+| Alignment analysis (Claude Haiku) | $20-40 |
+| Embeddings (Titan) | $5-10 |
+| **Subtotal AI** | **~$75-150/month** |
 
 ### One-Time AI Costs
 
@@ -684,8 +775,22 @@ packages/
 | Platform parsing (Claude Sonnet) | $10-15 |
 | Plank embeddings (Titan) | $5 |
 | Promise embeddings (Titan) | $10-20 |
-| Alignment analysis (Claude Haiku) | $20-50 |
-| **Total** | **~$50-100** |
+| Initial donor classification backlog | $50-100 |
+| **Total** | **~$75-140** |
+
+### Total Monthly (At Scale)
+
+| Category | Cost |
+|----------|------|
+| AWS Infrastructure | $105-170 |
+| AI/ML (Bedrock) | $75-150 |
+| **Total** | **~$180-320/month** |
+
+**Cost Optimization Strategies**:
+1. **Classification cache** - 70%+ hit rate saves $35-70/mo on Haiku
+2. **Pre-classification rules** - Skip RETIRED/NOT EMPLOYED (~15% of donors)
+3. **Batch efficiently** - 50 donors/request is optimal for Haiku
+4. **Aurora auto-pause** - 0 ACU when idle (dev only)
 
 ---
 
@@ -694,12 +799,16 @@ packages/
 | Risk | Mitigation |
 |------|------------|
 | Congress.gov rate limits (5000/hr) | Rate limiter + S3 response caching |
+| FEC API rate limits (1000/hr) | SQS queue + exponential backoff |
 | Census API downtime | Cache zip→district mappings locally |
-| OpenSecrets 200/day limit | Queue-based, upgrade to bulk data if needed |
 | Aurora cold starts | Provisioned capacity for production |
 | Vercel↔AWS latency | API Gateway edge-optimized endpoints |
 | Promise quality variance | Human review workflow before approval |
 | AI hallucinations | Confidence scoring + human review for flagged items |
+| Donor classification accuracy | Pre-rules for obvious cases + 0.85 confidence threshold |
+| Classification cost overrun | Aggressive caching (70%+ hit rate target) |
+| FEC→bioguide ID mapping gaps | Fuzzy matching + manual override table |
+| AI JSON parse failures | Retry once, flag for manual review if still failing |
 
 ---
 

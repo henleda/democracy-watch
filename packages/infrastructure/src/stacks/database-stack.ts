@@ -8,6 +8,7 @@ import { EnvironmentConfig } from '../config';
 export interface DatabaseStackProps extends cdk.StackProps {
   readonly config: EnvironmentConfig;
   readonly vpc: ec2.IVpc;
+  readonly lambdaSecurityGroup: ec2.ISecurityGroup;
 }
 
 export class DatabaseStack extends cdk.Stack {
@@ -18,7 +19,7 @@ export class DatabaseStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
 
-    const { config, vpc } = props;
+    const { config, vpc, lambdaSecurityGroup } = props;
 
     // Security group for Aurora
     this.databaseSecurityGroup = new ec2.SecurityGroup(this, 'DatabaseSG', {
@@ -27,6 +28,13 @@ export class DatabaseStack extends cdk.Stack {
       description: 'Security group for Aurora PostgreSQL cluster',
       allowAllOutbound: false,
     });
+
+    // Allow Lambda functions to connect to PostgreSQL
+    this.databaseSecurityGroup.addIngressRule(
+      lambdaSecurityGroup,
+      ec2.Port.tcp(5432),
+      'Allow Lambda access to PostgreSQL'
+    );
 
     // Parameter group for PostgreSQL
     // Note: pgvector is enabled via CREATE EXTENSION after cluster creation

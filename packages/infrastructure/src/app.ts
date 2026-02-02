@@ -43,6 +43,7 @@ const databaseStack = new DatabaseStack(app, `${prefix}-Database`, {
   env,
   config,
   vpc: networkStack.vpc,
+  lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
   description: 'Aurora PostgreSQL Serverless v2 with pgvector',
 });
 databaseStack.addDependency(networkStack);

@@ -37,7 +37,7 @@ Politicians' voting patterns deviate from their campaign promises, and these dev
 | **Frontend** | Next.js 14, React, Tailwind CSS |
 | **API** | AWS API Gateway, Lambda (Node.js) |
 | **Database** | Aurora PostgreSQL Serverless v2 + pgvector |
-| **AI/ML** | Amazon Bedrock (Claude, Titan Embeddings) |
+| **AI/ML** | Amazon Bedrock (Claude for promises + industry classification, Titan Embeddings) |
 | **Orchestration** | AWS Step Functions |
 | **Scheduling** | Amazon EventBridge |
 | **Auth** | Amazon Cognito |
@@ -74,8 +74,10 @@ We use a modular monolith pattern with 7 bounded contexts:
 - **Process**: EventBridge → Lambda → Congress.gov API → Aurora
 
 ### 2. Campaign Finance Pipeline
-- **Sources**: FEC OpenFEC API + OpenSecrets API
+- **Sources**: FEC OpenFEC API + Senate LDA Database (lobbying)
+- **Classification**: AI-powered industry tagging (Claude Haiku) — OpenSecrets API no longer available
 - **Output**: Industry-aggregated contributions, top donors, PAC relationships
+- **Taxonomy**: 17 sectors, 52 industries (transparent, published methodology)
 - **Schedule**: Weekly bulk + daily incremental
 
 ### 3. Embedding Generation

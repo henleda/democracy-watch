@@ -142,8 +142,9 @@ A flagged pattern where votes appear to align with major funding sources.
 |-----|---------|-------------|------|
 | Congress.gov | Members, bills, votes | 5000/hr | API key |
 | FEC OpenFEC | Campaign contributions | 1000/hr | API key |
-| OpenSecrets | Industry categorization | 200/day | API key |
-| Vote Smart | Policy positions | Varies | API key |
+| Senate LDA | Lobbying data | ~1 req/sec | None |
+
+> **Note**: OpenSecrets API is no longer available. Industry classification is performed using Claude Haiku. See `/docs/FINANCE_PIPELINE.md` and `/docs/INDUSTRY_TAXONOMY.md` for details.
 
 ## Current Phase
 
@@ -185,7 +186,6 @@ DATABASE_SECRET_ARN=arn:aws:secretsmanager:...
 # External APIs
 CONGRESS_API_KEY=...
 FEC_API_KEY=...
-OPENSECRETS_API_KEY=...
 
 # AWS
 AWS_REGION=us-east-1
@@ -196,5 +196,9 @@ AWS_REGION=us-east-1
 - Architecture questions: See `/docs/ARCHITECTURE.md`
 - Data model questions: See `/docs/DATA_MODEL.md`
 - API questions: See `/docs/API_DESIGN.md`
+- Finance pipeline: See `/docs/FINANCE_PIPELINE.md`
+- Industry taxonomy: See `/docs/INDUSTRY_TAXONOMY.md`
+- AI classification: See `/docs/INDUSTRY_CLASSIFICATION_PROMPT.md`
 - Domain-specific questions: See `/docs/domains/`
 - Phase-specific tasks: See `/docs/phases/`
+- Implementation plan: See `/docs/implementation/IMPLEMENTATION_PLAN.md`

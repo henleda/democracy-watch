@@ -6,6 +6,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Brand colors from logo
+        brand: {
+          navy: '#1e3a5f',
+          red: '#dc2626',
+          gold: '#f59e0b',
+          blue: '#2563eb',
+        },
         // Civic theme colors
         primary: {
           50: '#eff6ff',
@@ -17,7 +24,7 @@ module.exports = {
           600: '#2563eb',
           700: '#1d4ed8',
           800: '#1e40af',
-          900: '#1e3a8a',
+          900: '#1e3a5f', // Updated to brand navy
         },
         republican: {
           DEFAULT: '#dc2626',
