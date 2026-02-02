@@ -4,7 +4,8 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "esbuild src/members.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
+    "build:types": "tsc --emitDeclarationOnly",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
     "@types/aws-lambda": "^8.10.147",
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
+    "esbuild": "^0.27.2",
     "typescript": "^5.7.3"
   }
 }

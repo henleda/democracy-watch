@@ -4,7 +4,9 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "esbuild src/ingest-congress.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
+    "build": "esbuild src/ingest-congress.ts src/ingest-geo.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
+    "build:congress": "esbuild src/ingest-congress.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
+    "build:geo": "esbuild src/ingest-geo.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
     "build:types": "tsc --emitDeclarationOnly",
     "clean": "rm -rf dist"
   },

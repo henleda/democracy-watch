@@ -1,4 +1,5 @@
-import { query, queryOne } from '@democracy-watch/shared';
+import { query, queryOne, createLogger } from '@democracy-watch/shared';
+import { CensusGeocoderClient } from '../clients/census-geocoder';
 import {
   Member,
   MemberListItem,
@@ -21,7 +22,10 @@ export interface ZipCodeResult {
   }>;
 }
 
+const logger = createLogger('member-service');
+
 export class MemberService {
+  private censusGeocoder = new CensusGeocoderClient();
   async list(options: MemberListOptions): Promise<PaginatedResponse<MemberListItem>> {
     const {
       state,
@@ -127,6 +131,62 @@ export class MemberService {
   }
 
   async getByZipCode(zipCode: string): Promise<ZipCodeResult | null> {
+    // Step 1: Try database lookup
+    let district = await this.lookupDistrictFromDb(zipCode);
+
+    // Step 2: If not found in database, try Census Geocoder fallback
+    if (!district) {
+      logger.info({ zipCode }, 'ZIP not in database, trying Census Geocoder');
+
+      const geocodeResult = await this.censusGeocoder.getDistrictByZip(zipCode);
+
+      if (geocodeResult) {
+        // Get state name from database
+        const stateInfo = await queryOne<{ name: string }>(
+          'SELECT name FROM public.states WHERE code = $1',
+          [geocodeResult.stateCode]
+        );
+
+        if (stateInfo) {
+          district = {
+            state_code: geocodeResult.stateCode,
+            district_number: geocodeResult.districtNumber,
+            state_name: stateInfo.name,
+          };
+
+          // Cache the result for future lookups
+          await this.censusGeocoder.cacheResult(zipCode, geocodeResult);
+        }
+      }
+    }
+
+    if (!district) {
+      logger.debug({ zipCode }, 'No district found for ZIP code');
+      return null;
+    }
+
+    // Step 3: Get representatives for this district
+    const representatives = await this.getRepresentativesForDistrict(
+      district.state_code,
+      district.district_number
+    );
+
+    return {
+      zipCode,
+      state: {
+        code: district.state_code,
+        name: district.state_name,
+      },
+      district: district.district_number || undefined,
+      representatives,
+    };
+  }
+
+  private async lookupDistrictFromDb(zipCode: string): Promise<{
+    state_code: string;
+    district_number: string | null;
+    state_name: string;
+  } | null> {
     const districtQuery = `
       SELECT
         zd.state_code,
@@ -138,14 +198,17 @@ export class MemberService {
       LIMIT 1
     `;
 
-    const district = await queryOne<{
+    return queryOne<{
       state_code: string;
       district_number: string | null;
       state_name: string;
     }>(districtQuery, [zipCode]);
+  }
 
-    if (!district) return null;
-
+  private async getRepresentativesForDistrict(
+    stateCode: string,
+    districtNumber: string | null
+  ): Promise<ZipCodeResult['representatives']> {
     const membersQuery = `
       SELECT
         id, bioguide_id, full_name, party, state_code, chamber, district,
@@ -171,31 +234,23 @@ export class MemberService {
       is_active: boolean;
       deviation_score: number | null;
       party_alignment_score: number | null;
-    }>(membersQuery, [district.state_code, district.district_number]);
+    }>(membersQuery, [stateCode, districtNumber]);
 
-    return {
-      zipCode,
-      state: {
-        code: district.state_code,
-        name: district.state_name,
-      },
-      district: district.district_number || undefined,
-      representatives: rows.map((row) => ({
+    return rows.map((row) => ({
+      chamber: row.chamber as 'house' | 'senate',
+      member: {
+        id: row.id,
+        bioguideId: row.bioguide_id,
+        fullName: row.full_name,
+        party: row.party as 'Republican' | 'Democrat' | 'Independent',
+        stateCode: row.state_code,
         chamber: row.chamber as 'house' | 'senate',
-        member: {
-          id: row.id,
-          bioguideId: row.bioguide_id,
-          fullName: row.full_name,
-          party: row.party as 'Republican' | 'Democrat' | 'Independent',
-          stateCode: row.state_code,
-          chamber: row.chamber as 'house' | 'senate',
-          district: row.district || undefined,
-          isActive: row.is_active,
-          deviationScore: row.deviation_score || undefined,
-          partyAlignmentScore: row.party_alignment_score || undefined,
-        },
-      })),
-    };
+        district: row.district || undefined,
+        isActive: row.is_active,
+        deviationScore: row.deviation_score || undefined,
+        partyAlignmentScore: row.party_alignment_score || undefined,
+      },
+    }));
   }
 
   async getVotes(

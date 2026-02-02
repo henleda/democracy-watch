@@ -21,6 +21,7 @@ export interface IngestionStackProps extends cdk.StackProps {
 
 export class IngestionStack extends cdk.Stack {
   public readonly ingestCongressHandler: lambda.Function;
+  public readonly ingestGeoHandler: lambda.Function;
   public readonly migrateHandler: lambda.Function;
   public readonly seedHandler: lambda.Function;
 
@@ -103,6 +104,26 @@ export class IngestionStack extends cdk.Stack {
       }),
     }));
 
+    // Geo data ingestion Lambda (ZIP-to-district mapping)
+    this.ingestGeoHandler = new lambda.Function(this, 'IngestGeoHandler', {
+      functionName: `democracy-watch-ingest-geo-${config.envName}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'ingest-geo.handler',
+      code: lambda.Code.fromAsset('../ingestion/dist', {
+        exclude: ['*.ts', '*.map'],
+      }),
+      memorySize: 512,
+      timeout: cdk.Duration.minutes(5),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [lambdaSecurityGroup],
+      role: lambdaRole,
+      environment: {
+        NODE_ENV: config.envName,
+        DATABASE_SECRET_ARN: databaseSecretArn,
+      },
+    });
+
     // Database migration Lambda
     this.migrateHandler = new lambda.Function(this, 'MigrateHandler', {
       functionName: `democracy-watch-migrate-${config.envName}`,
@@ -157,6 +178,11 @@ export class IngestionStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'MigrateFunctionArn', {
       value: this.migrateHandler.functionArn,
       exportName: `${config.envName}-MigrateFunctionArn`,
+    });
+
+    new cdk.CfnOutput(this, 'IngestGeoFunctionArn', {
+      value: this.ingestGeoHandler.functionArn,
+      exportName: `${config.envName}-IngestGeoFunctionArn`,
     });
   }
 }
