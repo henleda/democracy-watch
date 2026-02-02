@@ -107,6 +107,9 @@ importers:
       pg:
         specifier: ^8.13.1
         version: 8.18.0
+      pino:
+        specifier: ^9.6.0
+        version: 9.14.0
     devDependencies:
       '@types/aws-lambda':
         specifier: ^8.10.147
@@ -117,6 +120,9 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.16.0
+      esbuild:
+        specifier: ^0.27.2
+        version: 0.27.2
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

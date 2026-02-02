@@ -3,7 +3,7 @@ import { CongressApiClient } from './congress/client';
 import { ingestMembers } from './congress/members';
 import { ingestBills } from './congress/bills';
 import { ingestVotes } from './congress/votes';
-import { createLogger, getApiKey } from '@democracy-watch/shared';
+import { createLogger, getApiKey, query, closePool } from '@democracy-watch/shared';
 
 const logger = createLogger('ingest-congress');
 
@@ -11,13 +11,16 @@ interface IngestEvent extends Partial<ScheduledEvent> {
   mode?: 'full' | 'incremental';
   source?: string;
   congress?: number;
+  skipMembers?: boolean;
+  skipBills?: boolean;
+  skipVotes?: boolean;
 }
 
 export const handler: Handler<IngestEvent> = async (event) => {
   const mode = event.mode || 'incremental';
   const congress = event.congress || 118; // Current Congress
 
-  logger.info({ mode, congress }, 'Starting Congress.gov ingestion');
+  logger.info({ mode, congress, event }, 'Starting Congress.gov ingestion');
 
   try {
     const apiKeyArn = process.env.CONGRESS_API_KEY_ARN;
@@ -34,19 +37,31 @@ export const handler: Handler<IngestEvent> = async (event) => {
       votes: { inserted: 0, updated: 0, errors: 0 },
     };
 
-    // Always sync members in full mode
-    if (mode === 'full') {
-      logger.info('Ingesting members (full)');
+    // Check if we need to sync members
+    // Always sync in full mode, or if never synced, or if 24+ hours since last sync
+    const shouldSyncMembers = !event.skipMembers && (
+      mode === 'full' || await shouldRefreshMembers()
+    );
+
+    if (shouldSyncMembers) {
+      logger.info('Ingesting members');
       results.members = await ingestMembers(client, congress);
+      await updateSyncTime('members');
+    } else {
+      logger.info('Skipping members (recently synced)');
     }
 
     // Sync bills
-    logger.info({ mode }, 'Ingesting bills');
-    results.bills = await ingestBills(client, congress, mode);
+    if (!event.skipBills) {
+      logger.info({ mode }, 'Ingesting bills');
+      results.bills = await ingestBills(client, congress, mode);
+    }
 
-    // Sync votes
-    logger.info({ mode }, 'Ingesting votes');
-    results.votes = await ingestVotes(client, congress, mode);
+    // Sync votes (requires members to exist)
+    if (!event.skipVotes) {
+      logger.info({ mode }, 'Ingesting votes');
+      results.votes = await ingestVotes(client, congress, mode);
+    }
 
     logger.info({ results }, 'Ingestion completed');
 
@@ -62,5 +77,41 @@ export const handler: Handler<IngestEvent> = async (event) => {
   } catch (error) {
     logger.error({ error }, 'Ingestion failed');
     throw error;
+  } finally {
+    await closePool();
   }
 };
+
+async function shouldRefreshMembers(): Promise<boolean> {
+  try {
+    const result = await query<{ last_sync_at: Date; hours_ago: number }>(
+      `SELECT last_sync_at,
+              EXTRACT(EPOCH FROM (NOW() - last_sync_at)) / 3600 AS hours_ago
+       FROM public.sync_metadata
+       WHERE entity = 'members'`
+    );
+
+    if (result.length === 0) {
+      logger.info('Members never synced, will sync now');
+      return true;
+    }
+
+    const hoursAgo = result[0].hours_ago;
+    const shouldRefresh = hoursAgo >= 24;
+    logger.info({ hoursAgo, shouldRefresh }, 'Member sync check');
+    return shouldRefresh;
+  } catch (error) {
+    // Table might not exist yet, sync members
+    logger.warn({ error }, 'Could not check sync metadata, will sync members');
+    return true;
+  }
+}
+
+async function updateSyncTime(entity: string): Promise<void> {
+  await query(
+    `INSERT INTO public.sync_metadata (entity, last_sync_at)
+     VALUES ($1, NOW())
+     ON CONFLICT (entity) DO UPDATE SET last_sync_at = NOW()`,
+    [entity]
+  );
+}

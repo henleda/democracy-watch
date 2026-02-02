@@ -15,6 +15,8 @@ export interface CongressApiResponse<T> {
   members?: T[];
   bills?: T[];
   votes?: T[];
+  houseRollCallVotes?: T[];
+  senateRollCallVotes?: T[];
   request?: Record<string, unknown>;
 }
 

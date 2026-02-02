@@ -42,9 +42,10 @@ async function ingestChamberVotes(
     const response =
       chamber === 'house'
         ? await client.getHouseVotes(congress, { limit, offset })
-        : { votes: [] }; // Senate votes handled differently
+        : { houseRollCallVotes: [] }; // Senate votes handled differently
 
-    const votes = response.votes || [];
+    // Congress.gov API returns 'houseRollCallVotes' not 'votes'
+    const votes = response.houseRollCallVotes || response.votes || [];
 
     for (const vote of votes) {
       try {
@@ -55,18 +56,9 @@ async function ingestChamberVotes(
           continue; // Skip existing votes in incremental mode
         }
 
-        // Get vote details with member positions
-        const details = await client.getVoteDetails(
-          congress,
-          chamber,
-          vote.rollCallNumber
-        );
-
-        await upsertRollCall(details.vote, chamber);
-        const memberResult = await upsertMemberVotes(details.vote, chamber);
-
-        result.inserted += memberResult.inserted;
-        result.updated += memberResult.updated;
+        // Upsert roll call from list data (member votes require XML parsing - TODO)
+        await upsertRollCallFromList(vote, chamber);
+        result.inserted++;
       } catch (error) {
         logger.error(
           { error, rollCall: vote.rollCallNumber },
@@ -94,6 +86,65 @@ async function rollCallExists(
   `;
   const result = await queryOne(sql, [congress, chamber, rollCallNumber]);
   return result !== null;
+}
+
+// House roll call vote from list API format
+interface HouseRollCallVote {
+  congress: number;
+  rollCallNumber: number;
+  sessionNumber: number;
+  result: string;
+  startDate: string;
+  legislationType?: string;
+  legislationNumber?: string;
+  voteQuestion?: string;
+}
+
+async function upsertRollCallFromList(
+  vote: HouseRollCallVote,
+  chamber: string
+): Promise<void> {
+  // Try to find associated bill if legislation info is present
+  let billId: string | null = null;
+  if (vote.legislationType && vote.legislationNumber) {
+    // Map legislation type to bill type (HRES -> hres, HR -> hr, etc.)
+    const billType = vote.legislationType.toLowerCase();
+    const billNumber = parseInt(vote.legislationNumber, 10);
+
+    if (!isNaN(billNumber)) {
+      const billResult = await queryOne<{ id: string }>(
+        `SELECT id FROM voting.bills WHERE congress = $1 AND bill_type = $2 AND bill_number = $3`,
+        [vote.congress, billType, billNumber]
+      );
+      billId = billResult?.id || null;
+    }
+  }
+
+  // Parse date from startDate
+  const voteDate = vote.startDate ? vote.startDate.split('T')[0] : null;
+
+  const sql = `
+    INSERT INTO voting.roll_calls (
+      congress, chamber, session, roll_call_number, bill_id,
+      vote_date, vote_question, vote_result
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (congress, chamber, session, roll_call_number)
+    DO UPDATE SET
+      bill_id = COALESCE(EXCLUDED.bill_id, voting.roll_calls.bill_id),
+      vote_question = COALESCE(EXCLUDED.vote_question, voting.roll_calls.vote_question),
+      vote_result = EXCLUDED.vote_result
+  `;
+
+  await query(sql, [
+    vote.congress,
+    chamber,
+    vote.sessionNumber || 1,
+    vote.rollCallNumber,
+    billId,
+    voteDate,
+    vote.voteQuestion || null,
+    vote.result,
+  ]);
 }
 
 async function upsertRollCall(

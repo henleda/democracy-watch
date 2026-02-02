@@ -3,6 +3,47 @@ import { query, createLogger } from '@democracy-watch/shared';
 
 const logger = createLogger('ingest-members');
 
+// State name to code mapping (for when API returns full names)
+const STATE_NAME_TO_CODE: Record<string, string> = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
+  'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
+  'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID',
+  'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS',
+  'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
+  'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+  'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+  'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK',
+  'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+  'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
+  'Wisconsin': 'WI', 'Wyoming': 'WY',
+  // Territories
+  'District of Columbia': 'DC', 'Puerto Rico': 'PR', 'Guam': 'GU',
+  'Virgin Islands': 'VI', 'American Samoa': 'AS', 'Northern Mariana Islands': 'MP',
+};
+
+function normalizeStateCode(state: string | undefined): string | null {
+  if (!state) return null;
+
+  const trimmed = state.trim();
+
+  // If it's already a 2-letter code, use it
+  if (trimmed.length === 2) {
+    return trimmed.toUpperCase();
+  }
+
+  // Try to map from full state name
+  const code = STATE_NAME_TO_CODE[trimmed];
+  if (code) {
+    return code;
+  }
+
+  // Log and return null for unknown states
+  logger.warn({ state }, 'Unknown state format');
+  return null;
+}
+
 export interface IngestResult {
   inserted: number;
   updated: number;
@@ -61,6 +102,13 @@ async function upsertMember(member: CongressMember): Promise<'inserted' | 'updat
   if (member.partyName.includes('Republican')) party = 'Republican';
   else if (member.partyName.includes('Democrat')) party = 'Democrat';
 
+  // Normalize state code (handle full names and abbreviations)
+  const stateCode = normalizeStateCode(member.state);
+  if (!stateCode) {
+    logger.warn({ bioguideId: member.bioguideId, state: member.state }, 'Invalid state code, skipping member');
+    throw new Error(`Invalid state code: ${member.state}`);
+  }
+
   const sql = `
     INSERT INTO members.members (
       bioguide_id, first_name, last_name, full_name,
@@ -84,11 +132,11 @@ async function upsertMember(member: CongressMember): Promise<'inserted' | 'updat
 
   const result = await query<{ inserted: boolean }>(sql, [
     member.bioguideId,
-    firstName,
-    lastName,
-    `${firstName} ${lastName}`.trim(),
+    firstName.substring(0, 100),
+    lastName.substring(0, 100),
+    `${firstName} ${lastName}`.trim().substring(0, 200),
     party,
-    member.state,
+    stateCode,
     chamber,
     member.district?.toString() || null,
     currentTerm?.startYear ? `${currentTerm.startYear}-01-03` : null,

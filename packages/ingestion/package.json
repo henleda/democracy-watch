@@ -4,7 +4,8 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "esbuild src/ingest-congress.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
+    "build:types": "tsc --emitDeclarationOnly",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -12,12 +13,14 @@
     "@aws-sdk/client-secrets-manager": "^3.712.0",
     "@aws-sdk/client-s3": "^3.712.0",
     "@aws-sdk/client-sqs": "^3.712.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "pino": "^9.6.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.147",
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
+    "esbuild": "^0.27.2",
     "typescript": "^5.7.3"
   }
 }
