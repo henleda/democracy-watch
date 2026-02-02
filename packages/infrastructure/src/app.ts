@@ -7,6 +7,7 @@ import { DatabaseStack } from './stacks/database-stack';
 import { StorageStack } from './stacks/storage-stack';
 import { ApiStack } from './stacks/api-stack';
 import { IngestionStack } from './stacks/ingestion-stack';
+import { OrchestrationStack } from './stacks/orchestration-stack';
 
 const app = new cdk.App();
 
@@ -75,5 +76,14 @@ ingestionStack.addDependency(networkStack);
 ingestionStack.addDependency(databaseStack);
 ingestionStack.addDependency(secretsStack);
 ingestionStack.addDependency(storageStack);
+
+// Orchestration stack - Step Functions for coordinated ingestion
+const orchestrationStack = new OrchestrationStack(app, `${prefix}-Orchestration`, {
+  env,
+  config,
+  ingestCongressHandler: ingestionStack.ingestCongressHandler,
+  description: 'Step Functions state machine for vote ingestion orchestration',
+});
+orchestrationStack.addDependency(ingestionStack);
 
 app.synth();

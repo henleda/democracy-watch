@@ -14,6 +14,9 @@ interface IngestEvent extends Partial<ScheduledEvent> {
   skipMembers?: boolean;
   skipBills?: boolean;
   skipVotes?: boolean;
+  // Step Functions chunking parameters
+  voteStartOffset?: number;
+  voteMaxRollCalls?: number;
 }
 
 export const handler: Handler<IngestEvent> = async (event) => {
@@ -58,9 +61,16 @@ export const handler: Handler<IngestEvent> = async (event) => {
     }
 
     // Sync votes (requires members to exist)
+    // Supports chunked processing for Step Functions orchestration
+    let voteResult = { inserted: 0, updated: 0, errors: 0, rollCallsProcessed: 0, hasMore: false, nextOffset: 0 };
     if (!event.skipVotes) {
-      logger.info({ mode }, 'Ingesting votes');
-      results.votes = await ingestVotes(client, congress, mode);
+      const voteOptions = {
+        startOffset: event.voteStartOffset,
+        maxRollCalls: event.voteMaxRollCalls,
+      };
+      logger.info({ mode, voteOptions }, 'Ingesting votes');
+      voteResult = await ingestVotes(client, congress, mode, voteOptions);
+      results.votes = voteResult;
     }
 
     logger.info({ results }, 'Ingestion completed');
@@ -72,6 +82,12 @@ export const handler: Handler<IngestEvent> = async (event) => {
         mode,
         congress,
         results,
+        // Include chunking info for Step Functions
+        voteChunking: {
+          rollCallsProcessed: voteResult.rollCallsProcessed,
+          hasMore: voteResult.hasMore,
+          nextOffset: voteResult.nextOffset,
+        },
       }),
     };
   } catch (error) {

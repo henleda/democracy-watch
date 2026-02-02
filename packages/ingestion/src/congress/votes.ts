@@ -5,18 +5,46 @@ import { fetchHouseRollCall, HouseClerkVote } from './house-clerk';
 
 const logger = createLogger('ingest-votes');
 
+export interface VoteIngestionOptions {
+  startOffset?: number;  // Starting offset for chunked processing
+  maxRollCalls?: number; // Maximum roll calls to process (for chunking)
+}
+
+export interface VoteIngestionResult extends IngestResult {
+  rollCallsProcessed: number;
+  hasMore: boolean;
+  nextOffset: number;
+}
+
 export async function ingestVotes(
   client: CongressApiClient,
   congress: number,
-  mode: 'full' | 'incremental'
-): Promise<IngestResult> {
-  const result: IngestResult = { inserted: 0, updated: 0, errors: 0 };
+  mode: 'full' | 'incremental',
+  options: VoteIngestionOptions = {}
+): Promise<VoteIngestionResult> {
+  const result: VoteIngestionResult = {
+    inserted: 0,
+    updated: 0,
+    errors: 0,
+    rollCallsProcessed: 0,
+    hasMore: false,
+    nextOffset: 0,
+  };
 
-  // Ingest House votes
-  const houseResult = await ingestChamberVotes(client, congress, 'house', mode);
+  // Ingest House votes with optional chunking
+  const houseResult = await ingestChamberVotes(
+    client,
+    congress,
+    'house',
+    mode,
+    options
+  );
   result.inserted += houseResult.inserted;
   result.updated += houseResult.updated;
   result.errors += houseResult.errors;
+  result.rollCallsProcessed = houseResult.rollCallsProcessed;
+  result.hasMore = houseResult.hasMore;
+  result.nextOffset = houseResult.nextOffset;
 
   // TODO: Senate votes require different API structure
   // const senateResult = await ingestChamberVotes(client, congress, 'senate', mode);
@@ -29,16 +57,25 @@ async function ingestChamberVotes(
   client: CongressApiClient,
   congress: number,
   chamber: 'house' | 'senate',
-  mode: 'full' | 'incremental'
-): Promise<IngestResult> {
-  const result: IngestResult = { inserted: 0, updated: 0, errors: 0 };
+  mode: 'full' | 'incremental',
+  options: VoteIngestionOptions = {}
+): Promise<VoteIngestionResult> {
+  const result: VoteIngestionResult = {
+    inserted: 0,
+    updated: 0,
+    errors: 0,
+    rollCallsProcessed: 0,
+    hasMore: false,
+    nextOffset: 0,
+  };
 
-  let offset = 0;
+  let offset = options.startOffset || 0;
   const limit = 250;
+  const maxRollCalls = options.maxRollCalls || Infinity;
   let hasMore = true;
 
-  while (hasMore) {
-    logger.info({ offset, limit, chamber }, 'Fetching votes batch');
+  while (hasMore && result.rollCallsProcessed < maxRollCalls) {
+    logger.info({ offset, limit, chamber, maxRollCalls, processed: result.rollCallsProcessed }, 'Fetching votes batch');
 
     const response =
       chamber === 'house'
@@ -82,11 +119,12 @@ async function ingestChamberVotes(
             result.errors += memberResult.errors;
 
             processedCount++;
+            result.rollCallsProcessed++;
             // Log progress every 50 roll calls
             if (processedCount % 50 === 0) {
               logger.info(
                 {
-                  rollCallsProcessed: processedCount,
+                  rollCallsProcessed: result.rollCallsProcessed,
                   memberVotesInserted: result.inserted,
                   memberVotesUpdated: result.updated,
                   errors: result.errors,
@@ -94,10 +132,16 @@ async function ingestChamberVotes(
                 'Vote processing progress'
               );
             }
+
+            // Check if we've hit the max for this chunk
+            if (result.rollCallsProcessed >= maxRollCalls) {
+              break;
+            }
           } else {
             // Fall back to list data if XML not found
             await upsertRollCallFromList(vote, chamber);
             result.inserted++;
+            result.rollCallsProcessed++;
             logger.warn(
               { rollCall: vote.rollCallNumber, year },
               'House Clerk XML not found, using list data only'
@@ -107,6 +151,7 @@ async function ingestChamberVotes(
           // Senate votes use different source (TODO)
           await upsertRollCallFromList(vote, chamber);
           result.inserted++;
+          result.rollCallsProcessed++;
         }
       } catch (error) {
         logger.error(
@@ -114,16 +159,27 @@ async function ingestChamberVotes(
           'Failed to process vote'
         );
         result.errors++;
+        result.rollCallsProcessed++;
       }
     }
 
     logger.info(
-      { batchComplete: offset, processedCount, chamber, result },
+      { batchComplete: offset, processedCount, chamber, rollCallsProcessed: result.rollCallsProcessed },
       'Batch processing complete'
     );
 
-    hasMore = votes.length === limit;
-    offset += limit;
+    // Check if there's more data and we haven't hit our limit
+    const moreFromApi = votes.length === limit;
+    const hitLimit = result.rollCallsProcessed >= maxRollCalls;
+
+    if (hitLimit && moreFromApi) {
+      // We stopped early due to limit, more data available
+      result.hasMore = true;
+      result.nextOffset = offset + votes.length;
+    } else {
+      hasMore = moreFromApi;
+      offset += limit;
+    }
   }
 
   return result;

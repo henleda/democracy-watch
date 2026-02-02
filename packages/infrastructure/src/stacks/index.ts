@@ -4,3 +4,4 @@ export * from './storage-stack';
 export * from './database-stack';
 export * from './api-stack';
 export * from './ingestion-stack';
+export * from './orchestration-stack';
