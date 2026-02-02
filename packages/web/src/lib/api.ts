@@ -23,24 +23,37 @@ async function fetchApi<T>(endpoint: string): Promise<T> {
 
 export interface MemberListItem {
   id: string;
-  bioguide_id: string;
-  first_name: string;
-  last_name: string;
-  party: string;
-  state: string;
-  district?: number;
-  chamber: 'House' | 'Senate';
-  photo_url?: string;
+  bioguideId: string;
+  fullName: string;
+  party: 'Republican' | 'Democrat' | 'Independent';
+  stateCode: string;
+  district?: string;
+  chamber: 'house' | 'senate';
+  isActive: boolean;
+  deviationScore?: number;
+  partyAlignmentScore?: number;
 }
 
 export interface Member extends MemberListItem {
-  title?: string;
-  phone?: string;
-  website?: string;
-  twitter?: string;
-  facebook?: string;
-  office_address?: string;
-  next_election?: number;
+  firstName?: string;
+  lastName?: string;
+  websiteUrl?: string;
+  twitterHandle?: string;
+  totalVotes?: number;
+  promisesTracked?: number;
+}
+
+export interface ZipCodeResult {
+  zipCode: string;
+  state: {
+    code: string;
+    name: string;
+  };
+  district?: string;
+  representatives: Array<{
+    chamber: 'house' | 'senate';
+    member: MemberListItem;
+  }>;
 }
 
 export interface Vote {
@@ -56,7 +69,7 @@ export interface Vote {
 
 export async function getMembersByZip(
   zipCode: string
-): Promise<ApiResponse<MemberListItem[]>> {
+): Promise<ApiResponse<ZipCodeResult>> {
   return fetchApi(`/v1/members/by-zip/${zipCode}`);
 }
 

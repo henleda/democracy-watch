@@ -10,8 +10,8 @@ export async function generateMetadata({ params }: PageProps) {
     const response = await getMember(params.memberId);
     const member = response.data;
     return {
-      title: `${member.first_name} ${member.last_name} | Democracy Watch`,
-      description: `Voting record and accountability for ${member.first_name} ${member.last_name}`,
+      title: `${member.fullName} | Democracy Watch`,
+      description: `Voting record and accountability for ${member.fullName}`,
     };
   } catch {
     return {
@@ -38,17 +38,23 @@ export default async function MemberDetailPage({ params }: PageProps) {
           : 'party-badge-independent';
 
     const chamberLabel =
-      member.chamber === 'Senate'
+      member.chamber === 'senate'
         ? 'Senator'
-        : member.district
+        : member.district && member.district !== 'AL'
           ? `Representative (District ${member.district})`
           : 'Representative';
+
+    // Get initials from full name
+    const nameParts = member.fullName.split(' ');
+    const initials = nameParts.length >= 2
+      ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`
+      : member.fullName.substring(0, 2);
 
     return (
       <div className="container mx-auto px-4 py-12">
         <div className="mb-6">
           <Link href="/members" className="text-primary-600 hover:underline">
-            ← Back to Members
+            &larr; Back to Members
           </Link>
         </div>
 
@@ -56,57 +62,38 @@ export default async function MemberDetailPage({ params }: PageProps) {
         <div className="card mb-8">
           <div className="flex flex-col md:flex-row gap-6">
             <div className="flex-shrink-0">
-              {member.photo_url ? (
-                <img
-                  src={member.photo_url}
-                  alt={`${member.first_name} ${member.last_name}`}
-                  className="w-32 h-32 rounded-lg object-cover"
-                />
-              ) : (
-                <div className="w-32 h-32 rounded-lg bg-gray-200 flex items-center justify-center text-gray-500 text-3xl font-bold">
-                  {member.first_name[0]}
-                  {member.last_name[0]}
-                </div>
-              )}
+              <div className="w-32 h-32 rounded-lg bg-gray-200 flex items-center justify-center text-gray-500 text-3xl font-bold">
+                {initials.toUpperCase()}
+              </div>
             </div>
             <div className="flex-1">
               <h1 className="text-3xl font-bold mb-2">
-                {member.title || chamberLabel} {member.first_name}{' '}
-                {member.last_name}
+                {chamberLabel} {member.fullName}
               </h1>
               <p className="text-gray-600 mb-4">
-                {chamberLabel} • {member.state}
-                {member.next_election && ` • Up for re-election in ${member.next_election}`}
+                {chamberLabel} &bull; {member.stateCode}
               </p>
               <span className={partyClass}>{member.party}</span>
 
               <div className="mt-4 flex flex-wrap gap-4 text-sm">
-                {member.phone && (
+                {member.websiteUrl && (
                   <a
-                    href={`tel:${member.phone}`}
-                    className="text-primary-600 hover:underline"
-                  >
-                    📞 {member.phone}
-                  </a>
-                )}
-                {member.website && (
-                  <a
-                    href={member.website}
+                    href={member.websiteUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary-600 hover:underline"
                   >
-                    🌐 Website
+                    Website
                   </a>
                 )}
-                {member.twitter && (
+                {member.twitterHandle && (
                   <a
-                    href={`https://twitter.com/${member.twitter}`}
+                    href={`https://twitter.com/${member.twitterHandle}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary-600 hover:underline"
                   >
-                    𝕏 @{member.twitter}
+                    @{member.twitterHandle}
                   </a>
                 )}
               </div>
@@ -130,7 +117,7 @@ export default async function MemberDetailPage({ params }: PageProps) {
                       </p>
                       <p className="text-sm text-gray-600">
                         {new Date(vote.vote_date).toLocaleDateString()}
-                        {vote.vote_result && ` • ${vote.vote_result}`}
+                        {vote.vote_result && ` \u2022 ${vote.vote_result}`}
                       </p>
                     </div>
                     <span

@@ -18,9 +18,9 @@ export default async function ZipResultsPage({ params }: PageProps) {
 
   try {
     const response = await getMembersByZip(zipCode);
-    const members = response.data;
+    const result = response.data;
 
-    if (!members || members.length === 0) {
+    if (!result || !result.representatives || result.representatives.length === 0) {
       return (
         <div className="container mx-auto px-4 py-12">
           <h1 className="text-2xl font-bold mb-4">
@@ -42,14 +42,14 @@ export default async function ZipResultsPage({ params }: PageProps) {
       );
     }
 
-    const senators = members.filter((m) => m.chamber === 'Senate');
-    const representatives = members.filter((m) => m.chamber === 'House');
+    const senators = result.representatives.filter((r) => r.chamber === 'senate');
+    const houseReps = result.representatives.filter((r) => r.chamber === 'house');
 
     return (
       <div className="container mx-auto px-4 py-12">
         <div className="mb-8">
           <Link href="/" className="text-primary-600 hover:underline">
-            ← Back to Search
+            &larr; Back to Search
           </Link>
         </div>
 
@@ -57,7 +57,8 @@ export default async function ZipResultsPage({ params }: PageProps) {
           Your Representatives
         </h1>
         <p className="text-gray-600 mb-8">
-          Showing representatives for ZIP code {zipCode}
+          ZIP code {result.zipCode} &bull; {result.state.name}
+          {result.district && result.district !== 'AL' && ` \u2022 District ${result.district}`}
         </p>
 
         {senators.length > 0 && (
@@ -66,21 +67,21 @@ export default async function ZipResultsPage({ params }: PageProps) {
               Senators ({senators.length})
             </h2>
             <div className="grid md:grid-cols-2 gap-4">
-              {senators.map((member) => (
-                <MemberCard key={member.id} member={member} />
+              {senators.map((rep) => (
+                <MemberCard key={rep.member.id} member={rep.member} />
               ))}
             </div>
           </section>
         )}
 
-        {representatives.length > 0 && (
+        {houseReps.length > 0 && (
           <section>
             <h2 className="text-xl font-semibold mb-4">
-              House Representatives ({representatives.length})
+              House Representative{houseReps.length > 1 ? 's' : ''} ({houseReps.length})
             </h2>
             <div className="grid md:grid-cols-2 gap-4">
-              {representatives.map((member) => (
-                <MemberCard key={member.id} member={member} />
+              {houseReps.map((rep) => (
+                <MemberCard key={rep.member.id} member={rep.member} />
               ))}
             </div>
           </section>
