@@ -104,6 +104,9 @@ importers:
       '@democracy-watch/shared':
         specifier: workspace:*
         version: link:../shared
+      fast-xml-parser:
+        specifier: ^5.3.4
+        version: 5.3.4
       pg:
         specifier: ^8.13.1
         version: 8.18.0
@@ -1361,6 +1364,10 @@ packages:
 
   fast-xml-parser@5.2.5:
     resolution: {integrity: sha512-pfX9uG9Ki0yekDHx2SiuRIyFdyAr1kMIMitPvb0YBo8SUfKvia7w7FIyd/l6av85pFYRhZscS75MwMnbvY+hcQ==}
+    hasBin: true
+
+  fast-xml-parser@5.3.4:
+    resolution: {integrity: sha512-EFd6afGmXlCx8H8WTZHhAoDaWaGyuIBoZJ2mknrNxug+aZKjkp0a0dlars9Izl+jF+7Gu1/5f/2h68cQpe0IiA==}
     hasBin: true
 
   fastq@1.20.1:
@@ -3433,6 +3440,10 @@ snapshots:
       micromatch: 4.0.8
 
   fast-xml-parser@5.2.5:
+    dependencies:
+      strnum: 2.1.2
+
+  fast-xml-parser@5.3.4:
     dependencies:
       strnum: 2.1.2
 

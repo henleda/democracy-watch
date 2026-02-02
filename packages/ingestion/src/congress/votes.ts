@@ -1,6 +1,7 @@
 import { CongressApiClient } from './client';
 import { query, queryOne, createLogger } from '@democracy-watch/shared';
 import { IngestResult } from './members';
+import { fetchHouseRollCall, HouseClerkVote } from './house-clerk';
 
 const logger = createLogger('ingest-votes');
 
@@ -47,18 +48,66 @@ async function ingestChamberVotes(
     // Congress.gov API returns 'houseRollCallVotes' not 'votes'
     const votes = response.houseRollCallVotes || response.votes || [];
 
+    let processedCount = 0;
     for (const vote of votes) {
       try {
-        // Check if roll call already exists
+        // Check if roll call already exists (with member votes)
         const exists = await rollCallExists(congress, chamber, vote.rollCallNumber);
 
         if (exists && mode === 'incremental') {
           continue; // Skip existing votes in incremental mode
         }
 
-        // Upsert roll call from list data (member votes require XML parsing - TODO)
-        await upsertRollCallFromList(vote, chamber);
-        result.inserted++;
+        // Extract year from vote date
+        const year = vote.startDate
+          ? parseInt(vote.startDate.split('-')[0], 10)
+          : new Date().getFullYear();
+
+        // Fetch detailed vote data from House Clerk XML
+        if (chamber === 'house') {
+          const clerkVote = await fetchHouseRollCall(year, vote.rollCallNumber);
+
+          if (clerkVote) {
+            // Upsert roll call with full totals from XML
+            await upsertRollCallFromClerk(clerkVote, vote);
+            result.inserted++;
+
+            // Upsert individual member votes
+            const memberResult = await upsertMemberVotesFromClerk(
+              clerkVote,
+              chamber
+            );
+            result.inserted += memberResult.inserted;
+            result.updated += memberResult.updated;
+            result.errors += memberResult.errors;
+
+            processedCount++;
+            // Log progress every 50 roll calls
+            if (processedCount % 50 === 0) {
+              logger.info(
+                {
+                  rollCallsProcessed: processedCount,
+                  memberVotesInserted: result.inserted,
+                  memberVotesUpdated: result.updated,
+                  errors: result.errors,
+                },
+                'Vote processing progress'
+              );
+            }
+          } else {
+            // Fall back to list data if XML not found
+            await upsertRollCallFromList(vote, chamber);
+            result.inserted++;
+            logger.warn(
+              { rollCall: vote.rollCallNumber, year },
+              'House Clerk XML not found, using list data only'
+            );
+          }
+        } else {
+          // Senate votes use different source (TODO)
+          await upsertRollCallFromList(vote, chamber);
+          result.inserted++;
+        }
       } catch (error) {
         logger.error(
           { error, rollCall: vote.rollCallNumber },
@@ -67,6 +116,11 @@ async function ingestChamberVotes(
         result.errors++;
       }
     }
+
+    logger.info(
+      { batchComplete: offset, processedCount, chamber, result },
+      'Batch processing complete'
+    );
 
     hasMore = votes.length === limit;
     offset += limit;
@@ -145,6 +199,143 @@ async function upsertRollCallFromList(
     vote.voteQuestion || null,
     vote.result,
   ]);
+}
+
+/**
+ * Upsert roll call with full data from House Clerk XML
+ */
+async function upsertRollCallFromClerk(
+  clerkVote: HouseClerkVote,
+  listVote: HouseRollCallVote
+): Promise<void> {
+  // Try to find associated bill if legislation info is present
+  let billId: string | null = null;
+  if (listVote.legislationType && listVote.legislationNumber) {
+    const billType = listVote.legislationType.toLowerCase();
+    const billNumber = parseInt(listVote.legislationNumber, 10);
+
+    if (!isNaN(billNumber)) {
+      const billResult = await queryOne<{ id: string }>(
+        `SELECT id FROM voting.bills WHERE congress = $1 AND bill_type = $2 AND bill_number = $3`,
+        [clerkVote.congress, billType, billNumber]
+      );
+      billId = billResult?.id || null;
+    }
+  }
+
+  const sql = `
+    INSERT INTO voting.roll_calls (
+      congress, chamber, session, roll_call_number, bill_id,
+      vote_date, vote_question, vote_result,
+      yea_total, nay_total, present_total, not_voting_total
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    ON CONFLICT (congress, chamber, session, roll_call_number)
+    DO UPDATE SET
+      bill_id = COALESCE(EXCLUDED.bill_id, voting.roll_calls.bill_id),
+      vote_question = COALESCE(EXCLUDED.vote_question, voting.roll_calls.vote_question),
+      vote_result = EXCLUDED.vote_result,
+      yea_total = EXCLUDED.yea_total,
+      nay_total = EXCLUDED.nay_total,
+      present_total = EXCLUDED.present_total,
+      not_voting_total = EXCLUDED.not_voting_total
+  `;
+
+  await query(sql, [
+    clerkVote.congress,
+    clerkVote.chamber,
+    clerkVote.session,
+    clerkVote.rollCallNumber,
+    billId,
+    clerkVote.voteDate,
+    clerkVote.voteQuestion || null,
+    clerkVote.voteResult,
+    clerkVote.yeaTotal,
+    clerkVote.nayTotal,
+    clerkVote.presentTotal,
+    clerkVote.notVotingTotal,
+  ]);
+}
+
+/**
+ * Insert individual member votes from House Clerk XML
+ */
+async function upsertMemberVotesFromClerk(
+  clerkVote: HouseClerkVote,
+  chamber: string
+): Promise<IngestResult> {
+  const result: IngestResult = { inserted: 0, updated: 0, errors: 0 };
+  let membersNotFound = 0;
+  let sampleMissingIds: string[] = [];
+
+  // Get roll call ID
+  const rollCall = await queryOne<{ id: string }>(
+    `SELECT id FROM voting.roll_calls WHERE congress = $1 AND chamber = $2 AND roll_call_number = $3`,
+    [clerkVote.congress, chamber, clerkVote.rollCallNumber]
+  );
+
+  if (!rollCall) {
+    logger.error({ rollCallNumber: clerkVote.rollCallNumber }, 'Roll call not found after insert');
+    return result;
+  }
+
+  for (const memberVote of clerkVote.memberVotes) {
+    try {
+      // Get member ID by bioguide_id
+      const member = await queryOne<{ id: string }>(
+        `SELECT id FROM members.members WHERE bioguide_id = $1`,
+        [memberVote.bioguideId]
+      );
+
+      if (!member) {
+        membersNotFound++;
+        if (sampleMissingIds.length < 5) {
+          sampleMissingIds.push(memberVote.bioguideId);
+        }
+        continue;
+      }
+
+      const sql = `
+        INSERT INTO voting.votes (member_id, roll_call_id, position, vote_date)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (member_id, roll_call_id)
+        DO UPDATE SET position = EXCLUDED.position
+        RETURNING (xmax = 0) AS inserted
+      `;
+
+      const upsertResult = await query<{ inserted: boolean }>(sql, [
+        member.id,
+        rollCall.id,
+        memberVote.position,
+        clerkVote.voteDate,
+      ]);
+
+      if (upsertResult[0]?.inserted) {
+        result.inserted++;
+      } else {
+        result.updated++;
+      }
+    } catch (error: any) {
+      logger.error(
+        { error: error?.message || error, bioguideId: memberVote.bioguideId },
+        'Failed to upsert member vote'
+      );
+      result.errors++;
+    }
+  }
+
+  // Log if there were any issues finding members
+  if (membersNotFound > 0) {
+    logger.warn(
+      {
+        rollCall: clerkVote.rollCallNumber,
+        membersNotFound,
+        sampleMissingIds,
+      },
+      'Some members not found in database'
+    );
+  }
+
+  return result;
 }
 
 async function upsertRollCall(
