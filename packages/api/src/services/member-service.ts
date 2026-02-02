@@ -271,7 +271,9 @@ export class MemberService {
 
     const dataQuery = `
       SELECT
-        v.id, v.member_id, v.roll_call_id, v.position, v.vote_date, v.bill_id,
+        v.id, v.member_id, v.roll_call_id, v.position,
+        COALESCE(v.vote_date, rc.vote_date) as vote_date,
+        v.bill_id,
         rc.congress, rc.chamber, rc.roll_call_number, rc.vote_question, rc.vote_result,
         b.id as bill_id, b.title as bill_title, b.bill_type, b.bill_number
       FROM voting.votes v
@@ -280,7 +282,7 @@ export class MemberService {
       WHERE v.member_id = $1 OR EXISTS (
         SELECT 1 FROM members.members m WHERE m.bioguide_id = $1 AND m.id = v.member_id
       )
-      ORDER BY v.vote_date DESC
+      ORDER BY COALESCE(v.vote_date, rc.vote_date) DESC NULLS LAST
       LIMIT $2 OFFSET $3
     `;
 

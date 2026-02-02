@@ -44,19 +44,19 @@ Quality control deep dive identified 71 issues across 5 categories. This documen
 
 | Issue | Status | Notes |
 |-------|--------|-------|
-| NULL vote_date values | ⬜ DEFER | ~2,400 votes affected - defer to Phase 1B |
-| Senate votes missing | ⬜ DEFER | Defer to Phase 1B |
+| NULL vote_date values | ✅ FIXED | Query uses COALESCE to fall back to roll_call.vote_date |
+| Senate votes missing | ⬜ DEFER | Defer to Phase 2 (requires Senate Clerk integration) |
 
 ---
 
 ## Phase 1B: High Priority (Post-Prod)
 
 ### Backend
-- [ ] Configure database connection pooling
-- [ ] Add request validation middleware
-- [ ] Sanitize error responses
+- [x] Configure database connection pooling (already configured: max=10, idle=30s, timeout=5s)
+- [ ] Add request validation middleware (defer to Phase 2)
+- [x] Sanitize error responses (already done - generic messages returned to clients)
 - [x] Add health check endpoint (GET /health)
-- [ ] Implement graceful shutdown
+- [ ] Implement graceful shutdown (defer to Phase 2)
 
 ### Data Pipelines
 - [ ] Add Senate vote ingestion
@@ -101,6 +101,9 @@ Quality control deep dive identified 71 issues across 5 categories. This documen
 - [x] Updated member detail page to use correct nested properties (vote.bill?.title, vote.rollCall?.voteQuestion)
 - [x] Added health check endpoint (GET /health) to API
 - [x] Added /health route to API Gateway infrastructure
+- [x] Fixed NULL vote_date - query now uses COALESCE(v.vote_date, rc.vote_date)
+- [x] Verified database connection pooling (already configured properly)
+- [x] Verified error response sanitization (already done properly)
 
 ---
 
