@@ -20,8 +20,8 @@ export class OrchestrationStack extends cdk.Stack {
     const { config, ingestCongressHandler } = props;
 
     // Roll calls per chunk - stay well under 15 min timeout
-    // ~2 seconds per roll call = ~400 roll calls in 13 minutes (safe margin)
-    const ROLL_CALLS_PER_CHUNK = 400;
+    // ~3 seconds per roll call (XML fetch + DB ops) = ~250 roll calls in 12.5 minutes
+    const ROLL_CALLS_PER_CHUNK = 250;
 
     // Final success state
     const success = new sfn.Succeed(this, 'IngestionComplete', {
