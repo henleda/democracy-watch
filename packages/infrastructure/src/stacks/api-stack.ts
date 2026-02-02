@@ -3,6 +3,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct } from 'constructs';
 import { EnvironmentConfig } from '../config';
 
@@ -11,6 +12,7 @@ export interface ApiStackProps extends cdk.StackProps {
   readonly vpc: ec2.IVpc;
   readonly lambdaSecurityGroup: ec2.ISecurityGroup;
   readonly databaseSecretArn: string;
+  readonly ciceroApiKeySecret: secretsmanager.ISecret;
 }
 
 export class ApiStack extends cdk.Stack {
@@ -20,7 +22,7 @@ export class ApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
 
-    const { config, vpc, lambdaSecurityGroup, databaseSecretArn } = props;
+    const { config, vpc, lambdaSecurityGroup, databaseSecretArn, ciceroApiKeySecret } = props;
 
     // Lambda execution role with database access
     const lambdaRole = new iam.Role(this, 'ApiLambdaRole', {
@@ -30,11 +32,11 @@ export class ApiStack extends cdk.Stack {
       ],
     });
 
-    // Allow reading database secret
+    // Allow reading secrets (database and Cicero API key)
     lambdaRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],
-      resources: [databaseSecretArn],
+      resources: [databaseSecretArn, ciceroApiKeySecret.secretArn],
     }));
 
     // Members API Lambda handler
@@ -54,6 +56,7 @@ export class ApiStack extends cdk.Stack {
       environment: {
         NODE_ENV: config.envName,
         DATABASE_SECRET_ARN: databaseSecretArn,
+        CICERO_API_KEY_ARN: ciceroApiKeySecret.secretArn,
       },
     });
 

@@ -56,10 +56,12 @@ const apiStack = new ApiStack(app, `${prefix}-Api`, {
   vpc: networkStack.vpc,
   lambdaSecurityGroup: networkStack.lambdaSecurityGroup,
   databaseSecretArn: databaseStack.clusterSecretArn,
+  ciceroApiKeySecret: secretsStack.ciceroApiKeySecret,
   description: 'REST API Gateway and Lambda handlers',
 });
 apiStack.addDependency(networkStack);
 apiStack.addDependency(databaseStack);
+apiStack.addDependency(secretsStack);
 
 // Ingestion stack (Phase 1)
 const ingestionStack = new IngestionStack(app, `${prefix}-Ingestion`, {

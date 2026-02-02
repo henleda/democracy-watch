@@ -11,6 +11,7 @@ export class SecretsStack extends cdk.Stack {
   public readonly congressApiKeySecret: secretsmanager.ISecret;
   public readonly fecApiKeySecret: secretsmanager.ISecret;
   public readonly openSecretsApiKeySecret: secretsmanager.ISecret;
+  public readonly ciceroApiKeySecret: secretsmanager.ISecret;
 
   constructor(scope: Construct, id: string, props: SecretsStackProps) {
     super(scope, id, props);
@@ -35,6 +36,12 @@ export class SecretsStack extends cdk.Stack {
       description: 'API key for OpenSecrets API',
     });
 
+    // Cicero API key (for ZIP code lookups)
+    this.ciceroApiKeySecret = new secretsmanager.Secret(this, 'CiceroApiKey', {
+      secretName: `democracy-watch/${config.envName}/cicero-api-key`,
+      description: 'API key for Cicero Data ZIP-to-district lookups',
+    });
+
     // Outputs
     new cdk.CfnOutput(this, 'CongressApiKeyArn', {
       value: this.congressApiKeySecret.secretArn,
@@ -49,6 +56,11 @@ export class SecretsStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'OpenSecretsApiKeyArn', {
       value: this.openSecretsApiKeySecret.secretArn,
       exportName: `${config.envName}-OpenSecretsApiKeyArn`,
+    });
+
+    new cdk.CfnOutput(this, 'CiceroApiKeyArn', {
+      value: this.ciceroApiKeySecret.secretArn,
+      exportName: `${config.envName}-CiceroApiKeyArn`,
     });
   }
 }

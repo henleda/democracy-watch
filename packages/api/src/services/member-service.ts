@@ -1,5 +1,5 @@
 import { query, queryOne, createLogger } from '@democracy-watch/shared';
-import { CensusGeocoderClient } from '../clients/census-geocoder';
+import { CiceroClient } from '../clients/cicero-client';
 import {
   Member,
   MemberListItem,
@@ -25,7 +25,25 @@ export interface ZipCodeResult {
 const logger = createLogger('member-service');
 
 export class MemberService {
-  private censusGeocoder = new CensusGeocoderClient();
+  private ciceroClient: CiceroClient | null | undefined = undefined;
+  private ciceroClientPromise: Promise<CiceroClient | null> | null = null;
+
+  private async getCiceroClient(): Promise<CiceroClient | null> {
+    // Return cached client if already initialized
+    if (this.ciceroClient !== undefined) {
+      return this.ciceroClient;
+    }
+
+    // Ensure only one initialization happens
+    if (!this.ciceroClientPromise) {
+      this.ciceroClientPromise = CiceroClient.create().then((client) => {
+        this.ciceroClient = client;
+        return client;
+      });
+    }
+
+    return this.ciceroClientPromise;
+  }
   async list(options: MemberListOptions): Promise<PaginatedResponse<MemberListItem>> {
     const {
       state,
@@ -131,32 +149,38 @@ export class MemberService {
   }
 
   async getByZipCode(zipCode: string): Promise<ZipCodeResult | null> {
-    // Step 1: Try database lookup
+    // Step 1: Try database lookup (cached ZIPs from previous lookups or seed data)
     let district = await this.lookupDistrictFromDb(zipCode);
 
-    // Step 2: If not found in database, try Census Geocoder fallback
+    // Step 2: If not found in database, try Cicero API fallback
     if (!district) {
-      logger.info({ zipCode }, 'ZIP not in database, trying Census Geocoder');
+      const cicero = await this.getCiceroClient();
 
-      const geocodeResult = await this.censusGeocoder.getDistrictByZip(zipCode);
+      if (cicero) {
+        logger.info({ zipCode }, 'ZIP not in database, trying Cicero API');
 
-      if (geocodeResult) {
-        // Get state name from database
-        const stateInfo = await queryOne<{ name: string }>(
-          'SELECT name FROM public.states WHERE code = $1',
-          [geocodeResult.stateCode]
-        );
+        const ciceroResult = await cicero.getDistrictByZip(zipCode);
 
-        if (stateInfo) {
-          district = {
-            state_code: geocodeResult.stateCode,
-            district_number: geocodeResult.districtNumber,
-            state_name: stateInfo.name,
-          };
+        if (ciceroResult) {
+          // Get state name from database
+          const stateInfo = await queryOne<{ name: string }>(
+            'SELECT name FROM public.states WHERE code = $1',
+            [ciceroResult.stateCode]
+          );
 
-          // Cache the result for future lookups
-          await this.censusGeocoder.cacheResult(zipCode, geocodeResult);
+          if (stateInfo) {
+            district = {
+              state_code: ciceroResult.stateCode,
+              district_number: ciceroResult.districtNumber,
+              state_name: stateInfo.name,
+            };
+
+            // Cache the result for future lookups to minimize API calls
+            await cicero.cacheResult(zipCode, ciceroResult);
+          }
         }
+      } else {
+        logger.debug({ zipCode }, 'Cicero client not available for fallback lookup');
       }
     }
 
