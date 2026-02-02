@@ -55,7 +55,7 @@ Quality control deep dive identified 71 issues across 5 categories. This documen
 - [ ] Configure database connection pooling
 - [ ] Add request validation middleware
 - [ ] Sanitize error responses
-- [ ] Add health check endpoint
+- [x] Add health check endpoint (GET /health)
 - [ ] Implement graceful shutdown
 
 ### Data Pipelines
@@ -66,8 +66,8 @@ Quality control deep dive identified 71 issues across 5 categories. This documen
 - [ ] Fix vote deduplication
 
 ### API Connectivity
-- [ ] Fix type mismatches (frontend/backend)
-- [ ] Fix chamber case mismatch
+- [x] Fix type mismatches (frontend/backend) - Vote interface aligned with backend structure
+- [x] Fix chamber case mismatch - Frontend now uses lowercase ('house', 'senate')
 - [ ] Implement frontend pagination
 
 ---
@@ -95,6 +95,12 @@ Quality control deep dive identified 71 issues across 5 categories. This documen
 - [x] Created `/contact` page (contact info)
 - [x] Documented SSL validation (required for AWS Aurora)
 - [x] Documented CORS configuration (acceptable for public API)
+
+#### Phase 1B Implementation (Partial)
+- [x] Fixed Vote type mismatch - aligned frontend Vote interface with backend MemberVote structure
+- [x] Updated member detail page to use correct nested properties (vote.bill?.title, vote.rollCall?.voteQuestion)
+- [x] Added health check endpoint (GET /health) to API
+- [x] Added /health route to API Gateway infrastructure
 
 ---
 

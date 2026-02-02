@@ -113,11 +113,11 @@ export default async function MemberDetailPage({ params }: PageProps) {
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <p className="font-medium">
-                        {vote.bill_title || vote.vote_question || 'Vote'}
+                        {vote.bill?.title || vote.rollCall?.voteQuestion || 'Vote'}
                       </p>
                       <p className="text-sm text-gray-600">
-                        {new Date(vote.vote_date).toLocaleDateString()}
-                        {vote.vote_result && ` \u2022 ${vote.vote_result}`}
+                        {new Date(vote.voteDate).toLocaleDateString()}
+                        {vote.rollCall?.voteResult && ` \u2022 ${vote.rollCall.voteResult}`}
                       </p>
                     </div>
                     <span

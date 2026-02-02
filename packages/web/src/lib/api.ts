@@ -58,13 +58,26 @@ export interface ZipCodeResult {
 
 export interface Vote {
   id: string;
-  roll_call_id: string;
-  bill_id?: string;
-  bill_title?: string;
-  vote_date: string;
+  memberId: string;
+  rollCallId: string;
   position: 'Yea' | 'Nay' | 'Present' | 'Not Voting';
-  vote_question?: string;
-  vote_result?: string;
+  voteDate: string;
+  billId?: string;
+  createdAt: string;
+  rollCall: {
+    id: string;
+    congress: number;
+    chamber: string;
+    rollCallNumber: number;
+    voteQuestion?: string;
+    voteResult?: string;
+  };
+  bill?: {
+    id: string;
+    title: string;
+    billType: string;
+    billNumber: number;
+  };
 }
 
 export async function getMembersByZip(

@@ -15,6 +15,15 @@ export async function handler(
   try {
     const { resource, pathParameters, queryStringParameters } = event;
 
+    // GET /health - health check endpoint
+    if (resource === '/health' && event.httpMethod === 'GET') {
+      return createResponse(200, {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        version: process.env.npm_package_version || '1.0.0',
+      });
+    }
+
     // GET /members
     if (resource === '/members' && event.httpMethod === 'GET') {
       return await listMembers(queryStringParameters || {});

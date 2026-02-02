@@ -89,6 +89,11 @@ export class ApiStack extends cdk.Stack {
     });
 
     // API Routes
+
+    // GET /health - health check endpoint
+    const health = this.api.root.addResource('health');
+    health.addMethod('GET', membersIntegration);
+
     const members = this.api.root.addResource('members');
 
     // GET /members - list all members
