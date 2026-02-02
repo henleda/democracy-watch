@@ -22,6 +22,7 @@ export interface IngestionStackProps extends cdk.StackProps {
 export class IngestionStack extends cdk.Stack {
   public readonly ingestCongressHandler: lambda.Function;
   public readonly migrateHandler: lambda.Function;
+  public readonly seedHandler: lambda.Function;
 
   constructor(scope: Construct, id: string, props: IngestionStackProps) {
     super(scope, id, props);
@@ -107,6 +108,26 @@ export class IngestionStack extends cdk.Stack {
       functionName: `democracy-watch-migrate-${config.envName}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'migrate-handler.handler',
+      code: lambda.Code.fromAsset('../database/dist', {
+        exclude: ['*.ts', '*.map'],
+      }),
+      memorySize: 512,
+      timeout: cdk.Duration.minutes(5),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [lambdaSecurityGroup],
+      role: lambdaRole,
+      environment: {
+        NODE_ENV: config.envName,
+        DATABASE_SECRET_ARN: databaseSecretArn,
+      },
+    });
+
+    // Database seed Lambda
+    this.seedHandler = new lambda.Function(this, 'SeedHandler', {
+      functionName: `democracy-watch-seed-${config.envName}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'seed-handler.handler',
       code: lambda.Code.fromAsset('../database/dist', {
         exclude: ['*.ts', '*.map'],
       }),

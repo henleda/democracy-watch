@@ -8,53 +8,51 @@ export function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
-    <header className="bg-gradient-to-r from-brand-navy to-primary-800 shadow-lg">
-      <nav className="container mx-auto px-4 py-3">
+    <header className="bg-white shadow-md sticky top-0 z-50">
+      <nav className="container mx-auto px-4 py-2">
         <div className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
             <Image
-              src="/logo.webp"
+              src="/logo.png"
               alt="Democracy Watch"
-              width={48}
-              height={48}
-              className="rounded-lg group-hover:scale-105 transition-transform"
+              width={280}
+              height={100}
+              className="h-16 md:h-20 w-auto"
               priority
             />
-            <div className="hidden sm:block">
-              <span className="text-xl font-bold text-white">
-                Democracy<span className="text-brand-gold">Watch</span>
-              </span>
-              <span className="block text-xs text-gray-300">
-                They Work For You
-              </span>
-            </div>
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-8">
             <Link
               href="/members"
-              className="text-gray-200 hover:text-white transition-colors"
+              className="text-gray-700 hover:text-brand-blue font-medium transition-colors"
             >
               Members
             </Link>
             <Link
               href="/rankings"
-              className="text-gray-200 hover:text-white transition-colors"
+              className="text-gray-700 hover:text-brand-blue font-medium transition-colors"
             >
               Rankings
             </Link>
             <Link
               href="/about"
-              className="text-gray-200 hover:text-white transition-colors"
+              className="text-gray-700 hover:text-brand-blue font-medium transition-colors"
             >
               About
+            </Link>
+            <Link
+              href="/"
+              className="bg-brand-red hover:bg-red-700 text-white font-semibold py-2 px-5 rounded-lg transition-colors"
+            >
+              Find My Reps
             </Link>
           </div>
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2 text-white"
+            className="md:hidden p-2 text-gray-700"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label="Toggle menu"
           >
@@ -85,27 +83,34 @@ export function Header() {
 
         {/* Mobile Navigation */}
         {isMobileMenuOpen && (
-          <div className="md:hidden mt-4 pb-4 space-y-4 border-t border-primary-700 pt-4">
+          <div className="md:hidden mt-4 pb-4 space-y-3 border-t border-gray-100 pt-4">
             <Link
               href="/members"
-              className="block text-gray-200 hover:text-white"
+              className="block text-gray-700 hover:text-brand-blue font-medium py-2"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               Members
             </Link>
             <Link
               href="/rankings"
-              className="block text-gray-200 hover:text-white"
+              className="block text-gray-700 hover:text-brand-blue font-medium py-2"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               Rankings
             </Link>
             <Link
               href="/about"
-              className="block text-gray-200 hover:text-white"
+              className="block text-gray-700 hover:text-brand-blue font-medium py-2"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               About
+            </Link>
+            <Link
+              href="/"
+              className="block bg-brand-red hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg text-center"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Find My Reps
             </Link>
           </div>
         )}

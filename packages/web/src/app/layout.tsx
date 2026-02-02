@@ -19,17 +19,17 @@ export const metadata: Metadata = {
     description: 'Track congressional voting records, compare actions to promises, and see who funds your elected officials.',
     siteName: 'Democracy Watch',
     type: 'website',
-    images: ['/logo.webp'],
+    images: ['/logo.png'],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Democracy Watch - They Work For You',
     description: 'Track congressional voting records, compare actions to promises, and see who funds your elected officials.',
-    images: ['/logo.webp'],
+    images: ['/logo.png'],
   },
   icons: {
-    icon: '/logo.webp',
-    apple: '/logo.webp',
+    icon: '/logo.png',
+    apple: '/logo.png',
   },
 };
 

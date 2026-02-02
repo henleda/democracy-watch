@@ -5,7 +5,7 @@
   "scripts": {
     "migrate": "ts-node src/migrate.ts",
     "seed": "ts-node src/seed.ts",
-    "build": "esbuild src/migrate-handler.ts --bundle --platform=node --target=node20 --outfile=dist/migrate-handler.js && cp -r src/migrations dist/ && cp -r src/seeds dist/",
+    "build": "esbuild src/migrate-handler.ts src/seed-handler.ts --bundle --platform=node --target=node20 --outdir=dist && cp -r src/migrations dist/ && cp -r src/seeds dist/",
     "clean": "rm -rf dist"
   },
   "dependencies": {
