@@ -14,6 +14,8 @@ interface IngestEvent extends Partial<ScheduledEvent> {
   skipMembers?: boolean;
   skipBills?: boolean;
   skipVotes?: boolean;
+  // Chamber filter for vote ingestion
+  chamber?: 'house' | 'senate' | 'both';
   // Step Functions chunking parameters
   voteStartOffset?: number;
   voteMaxRollCalls?: number;
@@ -62,13 +64,16 @@ export const handler: Handler<IngestEvent> = async (event) => {
 
     // Sync votes (requires members to exist)
     // Supports chunked processing for Step Functions orchestration
+    // Chamber can be 'house', 'senate', or 'both' (default)
     let voteResult = { inserted: 0, updated: 0, errors: 0, rollCallsProcessed: 0, hasMore: false, nextOffset: 0 };
     if (!event.skipVotes) {
+      const chamber = event.chamber || 'both';
       const voteOptions = {
         startOffset: event.voteStartOffset,
         maxRollCalls: event.voteMaxRollCalls,
+        chamber,
       };
-      logger.info({ mode, voteOptions }, 'Ingesting votes');
+      logger.info({ mode, voteOptions, chamber }, 'Ingesting votes');
       voteResult = await ingestVotes(client, congress, mode, voteOptions);
       results.votes = voteResult;
     }

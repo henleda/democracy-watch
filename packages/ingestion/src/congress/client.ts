@@ -193,9 +193,14 @@ export interface CongressVote {
   congress: number;
   chamber: string;
   rollCallNumber: number;
-  date: string;
-  question: string;
+  sessionNumber: number;
+  startDate: string; // ISO datetime from House API
+  date?: string; // Alternative date field
+  question?: string;
+  voteQuestion?: string; // From House API
   result: string;
+  legislationType?: string;
+  legislationNumber?: string;
   bill?: { congress: number; type: string; number: number };
 }
 

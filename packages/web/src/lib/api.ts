@@ -1,4 +1,13 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+// API_URL is server-side runtime variable, NEXT_PUBLIC_API_URL is build-time
+// For SSR, we need the full URL; for client-side, /api works via rewrites
+function getApiBase(): string {
+  // Server-side: use API_URL (runtime) or NEXT_PUBLIC_API_URL (build-time)
+  if (typeof window === 'undefined') {
+    return process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || '/api';
+  }
+  // Client-side: use NEXT_PUBLIC_API_URL or /api (which gets rewritten)
+  return process.env.NEXT_PUBLIC_API_URL || '/api';
+}
 
 interface ApiResponse<T> {
   data: T;
@@ -10,7 +19,8 @@ interface ApiResponse<T> {
 }
 
 async function fetchApi<T>(endpoint: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}${endpoint}`, {
     next: { revalidate: 300 }, // Cache for 5 minutes
   });
 

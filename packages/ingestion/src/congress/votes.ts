@@ -2,12 +2,14 @@ import { CongressApiClient } from './client';
 import { query, queryOne, createLogger } from '@democracy-watch/shared';
 import { IngestResult } from './members';
 import { fetchHouseRollCall, HouseClerkVote } from './house-clerk';
+import { fetchSenateRollCall, SenateClerkVote } from './senate-clerk';
 
 const logger = createLogger('ingest-votes');
 
 export interface VoteIngestionOptions {
   startOffset?: number;  // Starting offset for chunked processing
   maxRollCalls?: number; // Maximum roll calls to process (for chunking)
+  chamber?: 'house' | 'senate' | 'both'; // Which chamber to ingest votes for
 }
 
 export interface VoteIngestionResult extends IngestResult {
@@ -31,25 +33,60 @@ export async function ingestVotes(
     nextOffset: 0,
   };
 
-  // Ingest House votes with optional chunking
-  const houseResult = await ingestChamberVotes(
-    client,
-    congress,
-    'house',
-    mode,
-    options
-  );
-  result.inserted += houseResult.inserted;
-  result.updated += houseResult.updated;
-  result.errors += houseResult.errors;
-  result.rollCallsProcessed = houseResult.rollCallsProcessed;
-  result.hasMore = houseResult.hasMore;
-  result.nextOffset = houseResult.nextOffset;
+  const chamber = options.chamber || 'both';
+  logger.info({ chamber, mode, congress }, 'Starting vote ingestion');
 
-  // TODO: Senate votes require different API structure
-  // const senateResult = await ingestChamberVotes(client, congress, 'senate', mode);
+  // Ingest House votes if requested
+  if (chamber === 'house' || chamber === 'both') {
+    logger.info({ congress, mode }, 'Ingesting House votes');
+    const houseResult = await ingestChamberVotes(
+      client,
+      congress,
+      'house',
+      mode,
+      options
+    );
+    result.inserted += houseResult.inserted;
+    result.updated += houseResult.updated;
+    result.errors += houseResult.errors;
+    result.rollCallsProcessed = houseResult.rollCallsProcessed;
+    result.hasMore = houseResult.hasMore;
+    result.nextOffset = houseResult.nextOffset;
+  }
 
-  logger.info({ result }, 'Votes ingestion completed');
+  // Ingest Senate votes if requested
+  if (chamber === 'senate' || chamber === 'both') {
+    logger.info({ congress, mode }, 'Ingesting Senate votes');
+    // Senate votes for both sessions (odd year = session 1, even year = session 2)
+    for (const session of [1, 2]) {
+      try {
+        const senateResult = await ingestSenateVotes(
+          client,
+          congress,
+          session,
+          mode,
+          options
+        );
+        result.inserted += senateResult.inserted;
+        result.updated += senateResult.updated;
+        result.errors += senateResult.errors;
+        result.rollCallsProcessed += senateResult.rollCallsProcessed;
+
+        // If Senate session has more data and we hit limit, flag it
+        if (senateResult.hasMore) {
+          result.hasMore = true;
+          // Preserve the nextOffset from Senate if we're in senate-only mode
+          if (chamber === 'senate') {
+            result.nextOffset = senateResult.nextOffset;
+          }
+        }
+      } catch (error) {
+        logger.warn({ error, congress, session }, 'Senate session ingestion failed, continuing');
+      }
+    }
+  }
+
+  logger.info({ result, chamber }, 'Votes ingestion completed');
   return result;
 }
 
@@ -545,4 +582,283 @@ function mapVotePosition(position: string): string {
     'Abstain': 'Not Voting',
   };
   return positionMap[position] || 'Not Voting';
+}
+
+// ============================================================================
+// Senate Vote Ingestion
+// ============================================================================
+
+/**
+ * Ingest Senate votes by iterating directly through Senate.gov XML
+ * Note: Congress.gov API doesn't have Senate vote endpoints yet (as of 2025)
+ */
+async function ingestSenateVotes(
+  _client: CongressApiClient, // Unused - Senate.gov XML is our source
+  congress: number,
+  session: number,
+  mode: 'full' | 'incremental',
+  options: VoteIngestionOptions = {}
+): Promise<VoteIngestionResult> {
+  const result: VoteIngestionResult = {
+    inserted: 0,
+    updated: 0,
+    errors: 0,
+    rollCallsProcessed: 0,
+    hasMore: false,
+    nextOffset: 0,
+  };
+
+  // Start from offset or 1
+  let rollCallNumber = (options.startOffset || 0) + 1;
+  const maxRollCalls = options.maxRollCalls || Infinity;
+  let consecutiveNotFound = 0;
+  const MAX_CONSECUTIVE_NOT_FOUND = 5; // Stop after 5 consecutive 404s
+
+  logger.info({ congress, session, mode, startingRollCall: rollCallNumber }, 'Starting Senate vote ingestion');
+
+  while (consecutiveNotFound < MAX_CONSECUTIVE_NOT_FOUND && result.rollCallsProcessed < maxRollCalls) {
+    try {
+      // Check if roll call already exists
+      const exists = await rollCallExists(congress, 'senate', rollCallNumber);
+
+      if (exists && mode === 'incremental') {
+        rollCallNumber++;
+        consecutiveNotFound = 0; // Reset since we found a valid roll call
+        continue;
+      }
+
+      // Fetch vote data directly from Senate.gov XML
+      const senateVote = await fetchSenateRollCall(congress, session, rollCallNumber);
+
+      if (senateVote) {
+        consecutiveNotFound = 0; // Reset counter on success
+
+        // Upsert roll call with full data from XML
+        await upsertRollCallFromSenate(senateVote, {});
+        result.inserted++;
+
+        // Upsert individual member votes
+        const memberResult = await upsertMemberVotesFromSenate(senateVote);
+        result.inserted += memberResult.inserted;
+        result.updated += memberResult.updated;
+        result.errors += memberResult.errors;
+
+        result.rollCallsProcessed++;
+
+        // Log progress every 25 roll calls
+        if (result.rollCallsProcessed % 25 === 0) {
+          logger.info(
+            {
+              congress,
+              session,
+              currentRollCall: rollCallNumber,
+              rollCallsProcessed: result.rollCallsProcessed,
+              inserted: result.inserted,
+              errors: result.errors,
+            },
+            'Senate vote processing progress'
+          );
+        }
+      } else {
+        // Roll call not found - might be end of votes or gap
+        consecutiveNotFound++;
+        logger.debug(
+          { rollCallNumber, congress, session, consecutiveNotFound },
+          'Senate roll call not found'
+        );
+      }
+
+      rollCallNumber++;
+
+      // Check if we've hit the max for this chunk
+      if (result.rollCallsProcessed >= maxRollCalls) {
+        result.hasMore = true;
+        result.nextOffset = rollCallNumber - 1;
+        break;
+      }
+    } catch (error) {
+      logger.error(
+        { error, rollCallNumber, congress, session },
+        'Failed to process Senate vote'
+      );
+      result.errors++;
+      rollCallNumber++;
+      consecutiveNotFound++;
+    }
+  }
+
+  logger.info(
+    { congress, session, result, lastRollCall: rollCallNumber - 1 },
+    'Senate vote ingestion completed for session'
+  );
+
+  return result;
+}
+
+/**
+ * Upsert roll call with full data from Senate.gov XML
+ */
+async function upsertRollCallFromSenate(
+  senateVote: SenateClerkVote,
+  listVote: { legislationType?: string; legislationNumber?: string }
+): Promise<void> {
+  // Try to find associated bill if legislation info is present
+  let billId: string | null = null;
+  if (listVote.legislationType && listVote.legislationNumber) {
+    const billType = listVote.legislationType.toLowerCase();
+    const billNumber = parseInt(listVote.legislationNumber, 10);
+
+    if (!isNaN(billNumber)) {
+      const billResult = await queryOne<{ id: string }>(
+        `SELECT id FROM voting.bills WHERE congress = $1 AND bill_type = $2 AND bill_number = $3`,
+        [senateVote.congress, billType, billNumber]
+      );
+      billId = billResult?.id || null;
+    }
+  }
+
+  const sql = `
+    INSERT INTO voting.roll_calls (
+      congress, chamber, session, roll_call_number, bill_id,
+      vote_date, vote_question, vote_result,
+      yea_total, nay_total, present_total, not_voting_total
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    ON CONFLICT (congress, chamber, session, roll_call_number)
+    DO UPDATE SET
+      bill_id = COALESCE(EXCLUDED.bill_id, voting.roll_calls.bill_id),
+      vote_question = COALESCE(EXCLUDED.vote_question, voting.roll_calls.vote_question),
+      vote_result = EXCLUDED.vote_result,
+      yea_total = EXCLUDED.yea_total,
+      nay_total = EXCLUDED.nay_total,
+      present_total = EXCLUDED.present_total,
+      not_voting_total = EXCLUDED.not_voting_total
+  `;
+
+  await query(sql, [
+    senateVote.congress,
+    senateVote.chamber,
+    senateVote.session,
+    senateVote.rollCallNumber,
+    billId,
+    senateVote.voteDate,
+    senateVote.voteQuestion || null,
+    senateVote.voteResult,
+    senateVote.yeaTotal,
+    senateVote.nayTotal,
+    senateVote.presentTotal,
+    senateVote.notVotingTotal,
+  ]);
+}
+
+/**
+ * Insert individual member votes from Senate.gov XML
+ * Uses LIS Member ID for matching, falls back to name+state
+ */
+async function upsertMemberVotesFromSenate(
+  senateVote: SenateClerkVote
+): Promise<IngestResult> {
+  const result: IngestResult = { inserted: 0, updated: 0, errors: 0 };
+  let membersNotFound = 0;
+  const sampleMissingIds: string[] = [];
+
+  // Get roll call ID
+  const rollCall = await queryOne<{ id: string }>(
+    `SELECT id FROM voting.roll_calls WHERE congress = $1 AND chamber = $2 AND roll_call_number = $3`,
+    [senateVote.congress, 'senate', senateVote.rollCallNumber]
+  );
+
+  if (!rollCall) {
+    logger.error(
+      { rollCallNumber: senateVote.rollCallNumber },
+      'Senate roll call not found after insert'
+    );
+    return result;
+  }
+
+  for (const memberVote of senateVote.memberVotes) {
+    try {
+      // First try to find member by LIS ID
+      let member = await queryOne<{ id: string }>(
+        `SELECT id FROM members.members WHERE lis_member_id = $1`,
+        [memberVote.lisId]
+      );
+
+      // If not found by LIS ID, try to match by state and update LIS ID
+      if (!member && memberVote.state) {
+        // Extract last name from "Warner (D-VA)" format
+        const nameParts = memberVote.name.split('(')[0].trim().split(' ');
+        const lastName = nameParts[nameParts.length - 1] || nameParts[0];
+
+        member = await queryOne<{ id: string }>(
+          `SELECT id FROM members.members
+           WHERE state_code = $1
+           AND chamber = 'senate'
+           AND UPPER(last_name) = UPPER($2)
+           AND is_active = true`,
+          [memberVote.state, lastName]
+        );
+
+        // If found, update the LIS ID for future lookups
+        if (member && memberVote.lisId) {
+          await query(
+            `UPDATE members.members SET lis_member_id = $1 WHERE id = $2`,
+            [memberVote.lisId, member.id]
+          );
+          logger.debug(
+            { lisId: memberVote.lisId, memberId: member.id },
+            'Updated member with LIS ID'
+          );
+        }
+      }
+
+      if (!member) {
+        membersNotFound++;
+        if (sampleMissingIds.length < 5) {
+          sampleMissingIds.push(`${memberVote.lisId}:${memberVote.name}`);
+        }
+        continue;
+      }
+
+      const sql = `
+        INSERT INTO voting.votes (member_id, roll_call_id, position, vote_date)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (member_id, roll_call_id)
+        DO UPDATE SET position = EXCLUDED.position
+        RETURNING (xmax = 0) AS inserted
+      `;
+
+      const upsertResult = await query<{ inserted: boolean }>(sql, [
+        member.id,
+        rollCall.id,
+        memberVote.position,
+        senateVote.voteDate,
+      ]);
+
+      if (upsertResult[0]?.inserted) {
+        result.inserted++;
+      } else {
+        result.updated++;
+      }
+    } catch (error: any) {
+      logger.error(
+        { error: error?.message || error, lisId: memberVote.lisId },
+        'Failed to upsert Senate member vote'
+      );
+      result.errors++;
+    }
+  }
+
+  // Log if there were any issues finding members
+  if (membersNotFound > 0) {
+    logger.warn(
+      {
+        rollCall: senateVote.rollCallNumber,
+        membersNotFound,
+        sampleMissingIds,
+      },
+      'Some senators not found in database'
+    );
+  }
+
+  return result;
 }

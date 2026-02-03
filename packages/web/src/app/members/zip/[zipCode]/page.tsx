@@ -89,6 +89,8 @@ export default async function ZipResultsPage({ params }: PageProps) {
       </div>
     );
   } catch (error) {
+    console.error('ZIP lookup error:', error);
+
     return (
       <div className="container mx-auto px-4 py-12">
         <h1 className="text-2xl font-bold mb-4 text-red-600">
