@@ -133,14 +133,22 @@ export class MemberService {
   }
 
   async getById(id: string): Promise<Member | null> {
-    const sql = `
-      SELECT
-        m.*,
-        s.name as state_name
-      FROM members.members m
-      JOIN public.states s ON s.code = m.state_code
-      WHERE m.id = $1 OR m.bioguide_id = $1
-    `;
+    // Check if id looks like a UUID (36 chars with hyphens)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    const sql = isUuid
+      ? `
+        SELECT m.*, s.name as state_name
+        FROM members.members m
+        JOIN public.states s ON s.code = m.state_code
+        WHERE m.id = $1
+      `
+      : `
+        SELECT m.*, s.name as state_name
+        FROM members.members m
+        JOIN public.states s ON s.code = m.state_code
+        WHERE m.bioguide_id = $1
+      `;
 
     const row = await queryOne<Record<string, unknown>>(sql, [id]);
     if (!row) return null;
