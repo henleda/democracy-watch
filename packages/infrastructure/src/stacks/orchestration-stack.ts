@@ -447,7 +447,7 @@ export class OrchestrationStack extends cdk.Stack {
     this.billIngestionStateMachine = new sfn.StateMachine(this, 'BillIngestionStateMachine', {
       stateMachineName: `democracy-watch-bill-details-${config.envName}`,
       definitionBody: sfn.DefinitionBody.fromChainable(billDefinition),
-      timeout: cdk.Duration.hours(8), // ~32k bills * 2.2s = ~19.5 hours, but with chunking
+      timeout: cdk.Duration.hours(12), // Congress 118 needs ~10 hours due to API rate limits
       tracingEnabled: true,
       logs: {
         destination: logGroup,
