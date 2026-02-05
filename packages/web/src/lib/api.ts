@@ -129,3 +129,72 @@ export async function getMemberVotes(
   const query = searchParams.toString();
   return fetchApi(`/v1/members/${memberId}/votes${query ? `?${query}` : ''}`);
 }
+
+// Bill types
+export interface BillListItem {
+  id: string;
+  congress: number;
+  billType: string;
+  billNumber: number;
+  title: string;
+  summary?: string;
+  sponsorId?: string;
+  sponsorName?: string;
+  sponsorParty?: string;
+  introducedDate?: string;
+  latestAction?: string;
+  latestActionDate?: string;
+  policyArea?: string;
+  voteCount?: number;
+}
+
+export interface BillRollCall {
+  id: string;
+  chamber: string;
+  rollCallNumber: number;
+  voteDate: string;
+  voteQuestion?: string;
+  voteResult?: string;
+  yeaTotal?: number;
+  nayTotal?: number;
+  republicanYea?: number;
+  republicanNay?: number;
+  democratYea?: number;
+  democratNay?: number;
+}
+
+export interface BillDetail extends BillListItem {
+  fullTextUrl?: string;
+  subjects?: string[];
+  rollCalls?: BillRollCall[];
+}
+
+export async function getBills(params?: {
+  q?: string;
+  congress?: number;
+  chamber?: string;
+  policyArea?: string;
+  sponsorId?: string;
+  limit?: number;
+  offset?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
+}): Promise<ApiResponse<BillListItem[]>> {
+  const searchParams = new URLSearchParams();
+  if (params?.q) searchParams.set('q', params.q);
+  if (params?.congress) searchParams.set('congress', params.congress.toString());
+  if (params?.chamber) searchParams.set('chamber', params.chamber);
+  if (params?.policyArea) searchParams.set('policyArea', params.policyArea);
+  if (params?.sponsorId) searchParams.set('sponsorId', params.sponsorId);
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+  if (params?.offset) searchParams.set('offset', params.offset.toString());
+  if (params?.sort) searchParams.set('sort', params.sort);
+  if (params?.order) searchParams.set('order', params.order);
+
+  const query = searchParams.toString();
+  return fetchApi(`/v1/bills${query ? `?${query}` : ''}`);
+}
+
+export async function getBill(billId: string): Promise<ApiResponse<BillDetail>> {
+  return fetchApi(`/v1/bills/${billId}`);
+}

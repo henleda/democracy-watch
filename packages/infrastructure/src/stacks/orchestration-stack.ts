@@ -15,6 +15,7 @@ export class OrchestrationStack extends cdk.Stack {
   public readonly voteIngestionStateMachine: sfn.StateMachine;
   public readonly houseVoteStateMachine: sfn.StateMachine;
   public readonly senateVoteStateMachine: sfn.StateMachine;
+  public readonly billIngestionStateMachine: sfn.StateMachine;
 
   constructor(scope: Construct, id: string, props: OrchestrationStackProps) {
     super(scope, id, props);
@@ -22,9 +23,10 @@ export class OrchestrationStack extends cdk.Stack {
     const { config, ingestCongressHandler } = props;
 
     // Roll calls per chunk - stay well under 15 min timeout
-    // House: ~3 seconds per roll call (XML fetch + DB ops) = ~250 roll calls in 12.5 minutes
-    // Senate: Similar timing, but iterates through XML sequentially
-    const ROLL_CALLS_PER_CHUNK = 250;
+    // House: 435 members per roll call = many more DB ops, needs smaller chunks
+    // Senate: 100 members per roll call, can handle larger chunks
+    const HOUSE_ROLL_CALLS_PER_CHUNK = 100;
+    const SENATE_ROLL_CALLS_PER_CHUNK = 250;
 
     // CloudWatch log group for all state machines
     const logGroup = new logs.LogGroup(this, 'StateMachineLogGroup', {
@@ -51,7 +53,7 @@ export class OrchestrationStack extends cdk.Stack {
         skipBills: true,
         chamber: 'house',
         voteStartOffset: sfn.JsonPath.numberAt('$.houseOffset'),
-        voteMaxRollCalls: ROLL_CALLS_PER_CHUNK,
+        voteMaxRollCalls: HOUSE_ROLL_CALLS_PER_CHUNK,
       }),
       resultPath: '$.chunkResult',
       resultSelector: {
@@ -121,7 +123,7 @@ export class OrchestrationStack extends cdk.Stack {
         skipBills: true,
         chamber: 'senate',
         voteStartOffset: sfn.JsonPath.numberAt('$.senateOffset'),
-        voteMaxRollCalls: ROLL_CALLS_PER_CHUNK,
+        voteMaxRollCalls: SENATE_ROLL_CALLS_PER_CHUNK,
       }),
       resultPath: '$.chunkResult',
       resultSelector: {
@@ -239,7 +241,7 @@ export class OrchestrationStack extends cdk.Stack {
         skipBills: true,
         chamber: 'house',
         voteStartOffset: sfn.JsonPath.numberAt('$.houseOffset'),
-        voteMaxRollCalls: ROLL_CALLS_PER_CHUNK,
+        voteMaxRollCalls: HOUSE_ROLL_CALLS_PER_CHUNK,
       }),
       resultPath: '$.houseChunkResult',
       resultSelector: {
@@ -290,7 +292,7 @@ export class OrchestrationStack extends cdk.Stack {
         skipBills: true,
         chamber: 'senate',
         voteStartOffset: sfn.JsonPath.numberAt('$.senateOffset'),
-        voteMaxRollCalls: ROLL_CALLS_PER_CHUNK,
+        voteMaxRollCalls: SENATE_ROLL_CALLS_PER_CHUNK,
       }),
       resultPath: '$.senateChunkResult',
       resultSelector: {
@@ -374,6 +376,89 @@ export class OrchestrationStack extends cdk.Stack {
     ingestCongressHandler.grantInvoke(this.voteIngestionStateMachine);
 
     // =========================================================================
+    // Bill Detail Ingestion State Machine (Chunked)
+    // =========================================================================
+    // Bills per chunk - stay well under 15 min timeout
+    // ~3 API calls per bill (detail + summaries + subjects) at 720ms each = ~2.2s per bill
+    // 200 bills * 2.2s = ~7.3 minutes, leaving margin for DB ops
+    const BILLS_PER_CHUNK = 200;
+
+    const billSuccess = new sfn.Succeed(this, 'BillIngestionComplete', {
+      comment: 'Bill details ingested successfully',
+    });
+
+    const billsComplete = new sfn.Pass(this, 'BillsComplete').next(billSuccess);
+
+    const processBillChunk = new tasks.LambdaInvoke(this, 'ProcessBillChunk', {
+      lambdaFunction: ingestCongressHandler,
+      payload: sfn.TaskInput.fromObject({
+        mode: sfn.JsonPath.stringAt('$.mode'),
+        congress: sfn.JsonPath.numberAt('$.congress'),
+        skipMembers: true,
+        skipVotes: true,
+        fetchBillDetails: true,
+        billChunkStart: sfn.JsonPath.numberAt('$.billOffset'),
+        billChunkSize: BILLS_PER_CHUNK,
+      }),
+      resultPath: '$.chunkResult',
+      resultSelector: {
+        'statusCode.$': '$.Payload.statusCode',
+        'body.$': 'States.StringToJson($.Payload.body)',
+      },
+    });
+
+    // Check if we processed a full chunk (meaning there's likely more)
+    const updateBillState = new sfn.Pass(this, 'UpdateBillState', {
+      parameters: {
+        'mode.$': '$.mode',
+        'congress.$': '$.congress',
+        'billOffset.$': `States.MathAdd($.billOffset, ${BILLS_PER_CHUNK})`,
+        'totalProcessed.$': `States.MathAdd($.totalProcessed, $.chunkResult.body.results.bills.updated)`,
+        'totalErrors.$': 'States.MathAdd($.totalErrors, $.chunkResult.body.results.bills.errors)',
+        'lastChunkUpdated.$': '$.chunkResult.body.results.bills.updated',
+        'lastChunkErrors.$': '$.chunkResult.body.results.bills.errors',
+      },
+    });
+
+    // Continue if we got a full chunk worth of updates (meaning there's more)
+    const hasMoreBillChunks = new sfn.Choice(this, 'HasMoreBillChunks')
+      .when(
+        sfn.Condition.numberGreaterThanEquals('$.lastChunkUpdated', BILLS_PER_CHUNK - 10), // Some margin for errors
+        processBillChunk
+      )
+      .otherwise(billsComplete);
+
+    processBillChunk.next(updateBillState).next(hasMoreBillChunks);
+
+    const initBillProcessing = new sfn.Pass(this, 'InitBillProcessing', {
+      parameters: {
+        'mode.$': '$.mode',
+        'congress.$': '$.congress',
+        'billOffset': 0,
+        'totalProcessed': 0,
+        'totalErrors': 0,
+        'lastChunkUpdated': BILLS_PER_CHUNK, // Start with full to enter loop
+        'lastChunkErrors': 0,
+      },
+    });
+
+    const billDefinition = initBillProcessing.next(processBillChunk);
+
+    this.billIngestionStateMachine = new sfn.StateMachine(this, 'BillIngestionStateMachine', {
+      stateMachineName: `democracy-watch-bill-details-${config.envName}`,
+      definitionBody: sfn.DefinitionBody.fromChainable(billDefinition),
+      timeout: cdk.Duration.hours(8), // ~32k bills * 2.2s = ~19.5 hours, but with chunking
+      tracingEnabled: true,
+      logs: {
+        destination: logGroup,
+        level: sfn.LogLevel.ALL,
+        includeExecutionData: true,
+      },
+    });
+
+    ingestCongressHandler.grantInvoke(this.billIngestionStateMachine);
+
+    // =========================================================================
     // Outputs
     // =========================================================================
     new cdk.CfnOutput(this, 'FullStateMachineArn', {
@@ -404,6 +489,16 @@ export class OrchestrationStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SenateStateMachineName', {
       value: this.senateVoteStateMachine.stateMachineName,
       exportName: `${config.envName}-SenateVoteStateMachineName`,
+    });
+
+    new cdk.CfnOutput(this, 'BillStateMachineArn', {
+      value: this.billIngestionStateMachine.stateMachineArn,
+      exportName: `${config.envName}-BillIngestionStateMachineArn`,
+    });
+
+    new cdk.CfnOutput(this, 'BillStateMachineName', {
+      value: this.billIngestionStateMachine.stateMachineName,
+      exportName: `${config.envName}-BillIngestionStateMachineName`,
     });
   }
 }

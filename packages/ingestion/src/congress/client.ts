@@ -106,6 +106,26 @@ export class CongressApiClient {
     );
   }
 
+  async getBillSummaries(
+    congress: number,
+    billType: string,
+    billNumber: number
+  ): Promise<{ summaries: CongressBillSummary[] }> {
+    return this.fetch<{ summaries: CongressBillSummary[] }>(
+      `/bill/${congress}/${billType}/${billNumber}/summaries`
+    );
+  }
+
+  async getBillSubjects(
+    congress: number,
+    billType: string,
+    billNumber: number
+  ): Promise<{ subjects: { legislativeSubjects: Array<{ name: string }> } }> {
+    return this.fetch<{ subjects: { legislativeSubjects: Array<{ name: string }> } }>(
+      `/bill/${congress}/${billType}/${billNumber}/subjects`
+    );
+  }
+
   async getHouseVotes(
     congress: number,
     options: PaginationOptions = {}
@@ -181,12 +201,54 @@ export interface CongressBill {
   updateDate: string;
 }
 
+export interface CongressBillSummary {
+  text: string;
+  updateDate: string;
+  versionCode: string;
+  actionDate?: string;
+  actionDesc?: string;
+}
+
+export interface CongressBillTextVersion {
+  type: string;
+  date: string;
+  url?: string;
+  formats?: Array<{ type: string; url: string }>;
+}
+
 export interface CongressBillDetail extends CongressBill {
   introducedDate: string;
-  sponsors?: Array<{ bioguideId: string; fullName: string }>;
+  sponsors?: Array<{
+    bioguideId: string;
+    fullName: string;
+    firstName?: string;
+    lastName?: string;
+    party?: string;
+    state?: string;
+  }>;
+  cosponsors?: {
+    count: number;
+    countIncludingWithdrawnCosponsors?: number;
+    url?: string;
+  };
   policyArea?: { name: string };
-  subjects?: { legislativeSubjects: Array<{ name: string }> };
-  summaries?: Array<{ text: string; updateDate: string }>;
+  // Note: subjects and summaries are URL references in the API, not inline data
+  // Use getBillSubjects() and getBillSummaries() to fetch them
+  subjects?: {
+    count: number;
+    url: string;
+  };
+  summaries?: {
+    count: number;
+    url: string;
+  };
+  textVersions?: {
+    count: number;
+    url: string;
+  };
+  constitutionalAuthorityStatementText?: string;
+  originChamber?: string;
+  originChamberCode?: string;
 }
 
 export interface CongressVote {

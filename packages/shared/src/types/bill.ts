@@ -16,6 +16,7 @@ export interface Bill {
   lawNumber?: string;
   primaryPolicyAreaId?: number;
   policyAreaIds?: number[];
+  subjects?: string[];
   createdAt: string;
   updatedAt: string;
 }

@@ -18,6 +18,7 @@ export interface ApiStackProps extends cdk.StackProps {
 export class ApiStack extends cdk.Stack {
   public readonly api: apigateway.RestApi;
   public readonly membersHandler: lambda.Function;
+  public readonly billsHandler: lambda.Function;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -57,6 +58,26 @@ export class ApiStack extends cdk.Stack {
         NODE_ENV: config.envName,
         DATABASE_SECRET_ARN: databaseSecretArn,
         CICERO_API_KEY_ARN: ciceroApiKeySecret.secretArn,
+      },
+    });
+
+    // Bills API Lambda handler
+    this.billsHandler = new lambda.Function(this, 'BillsHandler', {
+      functionName: `democracy-watch-bills-${config.envName}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'bills.handler',
+      code: lambda.Code.fromAsset('../api/dist', {
+        exclude: ['*.ts', '*.map'],
+      }),
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [lambdaSecurityGroup],
+      role: lambdaRole,
+      environment: {
+        NODE_ENV: config.envName,
+        DATABASE_SECRET_ARN: databaseSecretArn,
       },
     });
 
@@ -114,6 +135,20 @@ export class ApiStack extends cdk.Stack {
     const byZip = members.addResource('by-zip');
     const byZipCode = byZip.addResource('{zipCode}');
     byZipCode.addMethod('GET', membersIntegration);
+
+    // Bills API routes
+    const billsIntegration = new apigateway.LambdaIntegration(this.billsHandler, {
+      requestTemplates: { 'application/json': '{ "statusCode": "200" }' },
+    });
+
+    const bills = this.api.root.addResource('bills');
+
+    // GET /bills - list/search bills
+    bills.addMethod('GET', billsIntegration);
+
+    // GET /bills/{billId} - get bill by ID
+    const billById = bills.addResource('{billId}');
+    billById.addMethod('GET', billsIntegration);
 
     // Outputs
     new cdk.CfnOutput(this, 'ApiEndpoint', {

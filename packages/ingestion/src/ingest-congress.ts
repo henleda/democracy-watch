@@ -1,7 +1,7 @@
 import { Handler, ScheduledEvent } from 'aws-lambda';
 import { CongressApiClient } from './congress/client';
 import { ingestMembers } from './congress/members';
-import { ingestBills } from './congress/bills';
+import { ingestBillsWithOptions } from './congress/bills';
 import { ingestVotes } from './congress/votes';
 import { createLogger, getApiKey, query, closePool } from '@democracy-watch/shared';
 
@@ -19,6 +19,10 @@ interface IngestEvent extends Partial<ScheduledEvent> {
   // Step Functions chunking parameters
   voteStartOffset?: number;
   voteMaxRollCalls?: number;
+  // Bill enrichment options
+  fetchBillDetails?: boolean;
+  billChunkStart?: number;
+  billChunkSize?: number;
 }
 
 export const handler: Handler<IngestEvent> = async (event) => {
@@ -58,8 +62,15 @@ export const handler: Handler<IngestEvent> = async (event) => {
 
     // Sync bills
     if (!event.skipBills) {
-      logger.info({ mode }, 'Ingesting bills');
-      results.bills = await ingestBills(client, congress, mode);
+      const billOptions = {
+        congress,
+        mode,
+        fetchDetails: event.fetchBillDetails ?? false,
+        chunkStart: event.billChunkStart,
+        chunkSize: event.billChunkSize,
+      };
+      logger.info({ mode, billOptions }, 'Ingesting bills');
+      results.bills = await ingestBillsWithOptions(client, billOptions);
     }
 
     // Sync votes (requires members to exist)

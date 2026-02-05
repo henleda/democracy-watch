@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import { ZipSearch } from '@/components/ZipSearch';
+import { BillSearch } from '@/components/BillSearch';
 
 export default function HomePage() {
   return (
@@ -27,6 +28,21 @@ export default function HomePage() {
           </p>
           <div className="max-w-md mx-auto">
             <ZipSearch />
+          </div>
+        </div>
+      </section>
+
+      {/* Bill Search Section */}
+      <section className="bg-gray-50 py-12">
+        <div className="container mx-auto px-4 text-center">
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-4">
+            Search <span className="text-brand-blue">Legislation</span>
+          </h2>
+          <p className="text-gray-600 mb-6 max-w-xl mx-auto">
+            Find bills by keyword and see how your representatives voted
+          </p>
+          <div className="max-w-md mx-auto">
+            <BillSearch />
           </div>
         </div>
       </section>
