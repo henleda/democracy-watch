@@ -17,6 +17,9 @@ export interface HouseClerkVote {
   presentTotal: number;
   notVotingTotal: number;
   memberVotes: MemberVote[];
+  // Bill info extracted from legis-num (e.g., "H R 153")
+  billType?: string;
+  billNumber?: number;
 }
 
 export interface MemberVote {
@@ -140,6 +143,10 @@ function parseRollCallXml(xml: string): HouseClerkVote {
     })
     .filter((v: MemberVote) => v.bioguideId); // Filter out any without bioguide ID
 
+  // Extract bill info from legis-num (e.g., "H R 153", "S 5", "H RES 24")
+  const legisNum = metadata['legis-num']?.['#text'] || metadata['legis-num'] || '';
+  const { billType, billNumber } = parseLegisNum(legisNum);
+
   return {
     congress: parseInt(metadata.congress?.['#text'] || metadata.congress || '0', 10),
     session: parseInt(metadata.session?.['#text'] || metadata.session || '1', 10),
@@ -153,7 +160,57 @@ function parseRollCallXml(xml: string): HouseClerkVote {
     presentTotal,
     notVotingTotal,
     memberVotes,
+    billType,
+    billNumber,
   };
+}
+
+/**
+ * Parse legis-num field to extract bill type and number
+ * Examples: "H R 153" -> {billType: "hr", billNumber: 153}
+ *           "S 5" -> {billType: "s", billNumber: 5}
+ *           "H RES 24" -> {billType: "hres", billNumber: 24}
+ *           "QUORUM" -> {billType: undefined, billNumber: undefined}
+ */
+function parseLegisNum(legisNum: string): { billType?: string; billNumber?: number } {
+  if (!legisNum) return {};
+
+  // Common patterns: "H R 123", "S 5", "H RES 24", "S J RES 1", "H CON RES 5"
+  // Also handles: "HR 123", "HRES 24" (no spaces)
+  const normalized = legisNum.trim().toUpperCase();
+
+  // Skip procedural votes
+  if (['QUORUM', 'JOURNAL', 'MOTION', 'ADJOURN'].some(p => normalized.includes(p))) {
+    return {};
+  }
+
+  // Pattern: (H|S) (optional: J |CON )?(R|RES)? (number)
+  // Match things like: "H R 153", "S 5", "H RES 24", "S J RES 1"
+  const match = normalized.match(/^(H|S)\s*(J\s*|CON\s*)?(R(?:ES)?|)\s*(\d+)$/);
+  if (match) {
+    const [, chamber, modifier, resType, num] = match;
+    let billType = chamber.toLowerCase();
+
+    // Add resolution type suffix
+    if (modifier?.includes('J')) {
+      billType += 'jres';
+    } else if (modifier?.includes('CON')) {
+      billType += 'conres';
+    } else if (resType === 'RES') {
+      billType += 'res';
+    } else if (resType === 'R' || resType === '') {
+      // "H R" means House bill (hr), "S" alone means Senate bill (s)
+      billType += resType === 'R' ? 'r' : '';
+    }
+
+    return {
+      billType,
+      billNumber: parseInt(num, 10),
+    };
+  }
+
+  logger.debug({ legisNum }, 'Could not parse legis-num');
+  return {};
 }
 
 /**

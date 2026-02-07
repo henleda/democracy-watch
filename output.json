@@ -1,0 +1,1 @@
+{"statusCode":200,"body":"{\"success\":true,\"mode\":\"full\",\"congress\":119,\"results\":{\"members\":{\"inserted\":0,\"updated\":0,\"errors\":0},\"bills\":{\"inserted\":0,\"updated\":0,\"errors\":10},\"votes\":{\"inserted\":0,\"updated\":0,\"errors\":0}},\"voteChunking\":{\"rollCallsProcessed\":0,\"hasMore\":false,\"nextOffset\":0}}"}

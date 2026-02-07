@@ -309,9 +309,26 @@ async function upsertRollCallFromClerk(
   clerkVote: HouseClerkVote,
   listVote: HouseRollCallVote
 ): Promise<{ id: string; billId: string | null }> {
-  // Try to find associated bill if legislation info is present
+  // Try to find associated bill using Clerk XML bill info (preferred) or list data (fallback)
   let billId: string | null = null;
-  if (listVote.legislationType && listVote.legislationNumber) {
+
+  // First try Clerk XML bill info (more reliable)
+  if (clerkVote.billType && clerkVote.billNumber) {
+    const billResult = await queryOne<{ id: string }>(
+      `SELECT id FROM voting.bills WHERE congress = $1 AND bill_type = $2 AND bill_number = $3`,
+      [clerkVote.congress, clerkVote.billType, clerkVote.billNumber]
+    );
+    billId = billResult?.id || null;
+    if (billId) {
+      logger.debug(
+        { billType: clerkVote.billType, billNumber: clerkVote.billNumber, billId },
+        'Linked roll call to bill via Clerk XML'
+      );
+    }
+  }
+
+  // Fallback to list data if Clerk XML didn't have bill info
+  if (!billId && listVote.legislationType && listVote.legislationNumber) {
     const billType = listVote.legislationType.toLowerCase();
     const billNumber = parseInt(listVote.legislationNumber, 10);
 
@@ -674,7 +691,7 @@ async function ingestSenateVotes(
         consecutiveNotFound = 0; // Reset counter on success
 
         // Upsert roll call with full data from XML
-        const { id: rollCallId, billId } = await upsertRollCallFromSenate(senateVote, {});
+        const { id: rollCallId, billId } = await upsertRollCallFromSenate(senateVote);
         result.inserted++;
 
         // Upsert individual member votes
@@ -746,21 +763,21 @@ async function ingestSenateVotes(
  * Upsert roll call with full data from Senate.gov XML
  */
 async function upsertRollCallFromSenate(
-  senateVote: SenateClerkVote,
-  listVote: { legislationType?: string; legislationNumber?: string }
+  senateVote: SenateClerkVote
 ): Promise<{ id: string; billId: string | null }> {
-  // Try to find associated bill if legislation info is present
+  // Try to find associated bill using Senate XML document element
   let billId: string | null = null;
-  if (listVote.legislationType && listVote.legislationNumber) {
-    const billType = listVote.legislationType.toLowerCase();
-    const billNumber = parseInt(listVote.legislationNumber, 10);
-
-    if (!isNaN(billNumber)) {
-      const billResult = await queryOne<{ id: string }>(
-        `SELECT id FROM voting.bills WHERE congress = $1 AND bill_type = $2 AND bill_number = $3`,
-        [senateVote.congress, billType, billNumber]
+  if (senateVote.billType && senateVote.billNumber) {
+    const billResult = await queryOne<{ id: string }>(
+      `SELECT id FROM voting.bills WHERE congress = $1 AND bill_type = $2 AND bill_number = $3`,
+      [senateVote.congress, senateVote.billType, senateVote.billNumber]
+    );
+    billId = billResult?.id || null;
+    if (billId) {
+      logger.debug(
+        { billType: senateVote.billType, billNumber: senateVote.billNumber, billId },
+        'Linked Senate roll call to bill'
       );
-      billId = billResult?.id || null;
     }
   }
 

@@ -17,6 +17,9 @@ export interface SenateClerkVote {
   presentTotal: number;
   notVotingTotal: number;
   memberVotes: SenateMemberVote[];
+  // Bill info extracted from document element
+  billType?: string;
+  billNumber?: number;
 }
 
 export interface SenateMemberVote {
@@ -122,6 +125,9 @@ function parseRollCallXml(
       position: normalizeVotePosition(m.vote_cast || ''),
     }));
 
+  // Extract bill info from document element
+  const { billType, billNumber } = parseDocumentElement(rollCall.document);
+
   return {
     congress: parseInt(rollCall.congress || congress.toString(), 10),
     session: parseInt(rollCall.session || session.toString(), 10),
@@ -135,7 +141,45 @@ function parseRollCallXml(
     presentTotal,
     notVotingTotal,
     memberVotes,
+    billType,
+    billNumber,
   };
+}
+
+/**
+ * Parse document element to extract bill type and number
+ * Example: <document><document_type>S.</document_type><document_number>5</document_number></document>
+ */
+function parseDocumentElement(doc: any): { billType?: string; billNumber?: number } {
+  if (!doc) return {};
+
+  const docType = doc.document_type || '';
+  const docNumber = doc.document_number;
+
+  if (!docType || !docNumber) return {};
+
+  // document_type examples: "S.", "H.R.", "S.Res.", "H.Res.", "S.J.Res.", "H.Con.Res."
+  const typeMap: Record<string, string> = {
+    'S.': 's',
+    'H.R.': 'hr',
+    'S.Res.': 'sres',
+    'H.Res.': 'hres',
+    'S.J.Res.': 'sjres',
+    'H.J.Res.': 'hjres',
+    'S.Con.Res.': 'sconres',
+    'H.Con.Res.': 'hconres',
+  };
+
+  const billType = typeMap[docType.trim()];
+  if (!billType) {
+    logger.debug({ docType }, 'Unknown document type');
+    return {};
+  }
+
+  const num = parseInt(docNumber, 10);
+  if (isNaN(num)) return {};
+
+  return { billType, billNumber: num };
 }
 
 /**
