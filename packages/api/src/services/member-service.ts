@@ -138,13 +138,15 @@ export class MemberService {
 
     const sql = isUuid
       ? `
-        SELECT m.*, s.name as state_name
+        SELECT m.*, s.name as state_name,
+          (SELECT COUNT(*) FROM voting.votes v WHERE v.member_id = m.id) as total_votes
         FROM members.members m
         JOIN public.states s ON s.code = m.state_code
         WHERE m.id = $1
       `
       : `
-        SELECT m.*, s.name as state_name
+        SELECT m.*, s.name as state_name,
+          (SELECT COUNT(*) FROM voting.votes v WHERE v.member_id = m.id) as total_votes
         FROM members.members m
         JOIN public.states s ON s.code = m.state_code
         WHERE m.bioguide_id = $1
