@@ -198,3 +198,24 @@ export async function getBills(params?: {
 export async function getBill(billId: string): Promise<ApiResponse<BillDetail>> {
   return fetchApi(`/v1/bills/${billId}`);
 }
+
+// Stats types
+export interface PlatformStats {
+  memberCount: number;
+  billCount: number;
+  voteCount: number;
+  rollCallCount: number;
+}
+
+export async function getStats(): Promise<ApiResponse<PlatformStats>> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/v1/stats`, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  return res.json();
+}

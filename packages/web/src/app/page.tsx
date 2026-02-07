@@ -1,8 +1,17 @@
 import Image from 'next/image';
 import { ZipSearch } from '@/components/ZipSearch';
 import { BillSearch } from '@/components/BillSearch';
+import { getStats } from '@/lib/api';
 
-export default function HomePage() {
+export default async function HomePage() {
+  let stats = { memberCount: 0, billCount: 0, voteCount: 0, rollCallCount: 0 };
+
+  try {
+    const response = await getStats();
+    stats = response.data;
+  } catch (error) {
+    console.error('Failed to fetch stats:', error);
+  }
   return (
     <div>
       {/* Hero Section */}
@@ -52,19 +61,19 @@ export default function HomePage() {
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center text-white">
             <div>
-              <div className="text-3xl md:text-4xl font-bold">535</div>
+              <div className="text-3xl md:text-4xl font-bold">{stats.memberCount}</div>
               <div className="text-blue-200 text-sm">Members Tracked</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold">15K+</div>
+              <div className="text-3xl md:text-4xl font-bold">{formatNumber(stats.billCount)}</div>
               <div className="text-blue-200 text-sm">Bills Analyzed</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold">260K+</div>
+              <div className="text-3xl md:text-4xl font-bold">{formatNumber(stats.voteCount)}</div>
               <div className="text-blue-200 text-sm">Votes Recorded</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold">$B+</div>
+              <div className="text-3xl md:text-4xl font-bold">Coming Soon</div>
               <div className="text-blue-200 text-sm">Contributions Tracked</div>
             </div>
           </div>
@@ -205,4 +214,10 @@ export default function HomePage() {
       </section>
     </div>
   );
+}
+
+function formatNumber(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}K+`;
+  return n.toString();
 }
