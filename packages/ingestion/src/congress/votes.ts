@@ -460,6 +460,18 @@ async function upsertMemberVotesFromClerk(
  * If votes are later corrected, these counts may become stale.
  */
 async function updatePartyBreakdown(rollCallId: string): Promise<void> {
+  // First, check how many votes we have for this roll call
+  const countResult = await queryOne<{ count: string }>(
+    `SELECT COUNT(*) as count FROM voting.votes WHERE roll_call_id = $1`,
+    [rollCallId]
+  );
+  const voteCount = parseInt(countResult?.count || '0', 10);
+
+  if (voteCount === 0) {
+    logger.warn({ rollCallId, voteCount }, 'No votes found for roll call, skipping party breakdown');
+    return;
+  }
+
   const sql = `
     UPDATE voting.roll_calls
     SET
@@ -484,8 +496,27 @@ async function updatePartyBreakdown(rollCallId: string): Promise<void> {
         WHERE v.roll_call_id = $1 AND v.position = 'Nay' AND m.party = 'Democrat'
       )
     WHERE id = $1
+    RETURNING republican_yea, republican_nay, democrat_yea, democrat_nay
   `;
-  await query(sql, [rollCallId]);
+  const result = await query<{
+    republican_yea: number;
+    republican_nay: number;
+    democrat_yea: number;
+    democrat_nay: number;
+  }>(sql, [rollCallId]);
+
+  if (result[0]) {
+    logger.info(
+      {
+        rollCallId,
+        voteCount,
+        ...result[0],
+      },
+      'Updated party breakdown'
+    );
+  } else {
+    logger.warn({ rollCallId }, 'Party breakdown update returned no rows');
+  }
 }
 
 async function upsertRollCall(
