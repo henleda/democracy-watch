@@ -176,6 +176,7 @@ export interface CongressMember {
   terms: { item: Array<{ chamber: string; startYear: number; endYear?: number }> };
   depiction?: { imageUrl: string };
   updateDate: string;
+  officialWebsiteUrl?: string;
 }
 
 export interface CongressMemberDetail extends CongressMember {

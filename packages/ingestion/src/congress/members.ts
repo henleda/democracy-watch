@@ -113,8 +113,8 @@ async function upsertMember(member: CongressMember): Promise<'inserted' | 'updat
     INSERT INTO members.members (
       bioguide_id, first_name, last_name, full_name,
       party, state_code, chamber, district,
-      current_term_start, is_active, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, NOW())
+      current_term_start, website_url, is_active, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, NOW())
     ON CONFLICT (bioguide_id)
     DO UPDATE SET
       first_name = EXCLUDED.first_name,
@@ -125,6 +125,7 @@ async function upsertMember(member: CongressMember): Promise<'inserted' | 'updat
       chamber = EXCLUDED.chamber,
       district = EXCLUDED.district,
       current_term_start = EXCLUDED.current_term_start,
+      website_url = COALESCE(EXCLUDED.website_url, members.members.website_url),
       is_active = TRUE,
       updated_at = NOW()
     RETURNING (xmax = 0) AS inserted
@@ -140,6 +141,7 @@ async function upsertMember(member: CongressMember): Promise<'inserted' | 'updat
     chamber,
     member.district?.toString() || null,
     currentTerm?.startYear ? `${currentTerm.startYear}-01-03` : null,
+    member.officialWebsiteUrl || null,
   ]);
 
   return result[0]?.inserted ? 'inserted' : 'updated';
