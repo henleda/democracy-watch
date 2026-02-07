@@ -179,70 +179,26 @@ export default async function BillDetailPage({ params }: PageProps) {
                 </div>
 
                 {/* Party Breakdown */}
-                {(rollCall.republicanYea !== undefined || rollCall.democratYea !== undefined) && (
+                {hasPartyBreakdown(rollCall) && (
                   <div className="space-y-3">
                     <h4 className="font-medium text-gray-700">Party Breakdown</h4>
 
-                    {/* Republicans */}
-                    {(rollCall.republicanYea !== undefined || rollCall.republicanNay !== undefined) && (
-                      <div className="flex items-center gap-4">
-                        <span className="w-24 text-sm font-medium text-red-700">Republicans</span>
-                        <div className="flex-1 flex items-center gap-2">
-                          <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden flex">
-                            {rollCall.republicanYea !== undefined && rollCall.republicanNay !== undefined && (
-                              <>
-                                <div
-                                  className="h-full bg-green-500 flex items-center justify-center text-xs text-white font-medium"
-                                  style={{
-                                    width: `${(rollCall.republicanYea / (rollCall.republicanYea + rollCall.republicanNay)) * 100}%`,
-                                  }}
-                                >
-                                  {rollCall.republicanYea > 0 ? rollCall.republicanYea : ''}
-                                </div>
-                                <div
-                                  className="h-full bg-red-500 flex items-center justify-center text-xs text-white font-medium"
-                                  style={{
-                                    width: `${(rollCall.republicanNay / (rollCall.republicanYea + rollCall.republicanNay)) * 100}%`,
-                                  }}
-                                >
-                                  {rollCall.republicanNay > 0 ? rollCall.republicanNay : ''}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                    {rollCall.republicanYea != null && rollCall.republicanNay != null && (
+                      <PartyVoteBar
+                        label="Republicans"
+                        labelClass="text-red-700"
+                        yea={rollCall.republicanYea}
+                        nay={rollCall.republicanNay}
+                      />
                     )}
 
-                    {/* Democrats */}
-                    {(rollCall.democratYea !== undefined || rollCall.democratNay !== undefined) && (
-                      <div className="flex items-center gap-4">
-                        <span className="w-24 text-sm font-medium text-blue-700">Democrats</span>
-                        <div className="flex-1 flex items-center gap-2">
-                          <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden flex">
-                            {rollCall.democratYea !== undefined && rollCall.democratNay !== undefined && (
-                              <>
-                                <div
-                                  className="h-full bg-green-500 flex items-center justify-center text-xs text-white font-medium"
-                                  style={{
-                                    width: `${(rollCall.democratYea / (rollCall.democratYea + rollCall.democratNay)) * 100}%`,
-                                  }}
-                                >
-                                  {rollCall.democratYea > 0 ? rollCall.democratYea : ''}
-                                </div>
-                                <div
-                                  className="h-full bg-red-500 flex items-center justify-center text-xs text-white font-medium"
-                                  style={{
-                                    width: `${(rollCall.democratNay / (rollCall.democratYea + rollCall.democratNay)) * 100}%`,
-                                  }}
-                                >
-                                  {rollCall.democratNay > 0 ? rollCall.democratNay : ''}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                    {rollCall.democratYea != null && rollCall.democratNay != null && (
+                      <PartyVoteBar
+                        label="Democrats"
+                        labelClass="text-blue-700"
+                        yea={rollCall.democratYea}
+                        nay={rollCall.democratNay}
+                      />
                     )}
                   </div>
                 )}
@@ -317,4 +273,63 @@ function getPartyColorClass(party: string): string {
     default:
       return 'text-gray-600';
   }
+}
+
+function hasPartyBreakdown(rollCall: {
+  republicanYea?: number | null;
+  republicanNay?: number | null;
+  democratYea?: number | null;
+  democratNay?: number | null;
+}): boolean {
+  return (
+    (rollCall.republicanYea != null && rollCall.republicanNay != null) ||
+    (rollCall.democratYea != null && rollCall.democratNay != null)
+  );
+}
+
+function PartyVoteBar({
+  label,
+  labelClass,
+  yea,
+  nay,
+}: {
+  label: string;
+  labelClass: string;
+  yea: number;
+  nay: number;
+}) {
+  const total = yea + nay;
+  if (total === 0) {
+    return (
+      <div className="flex items-center gap-4">
+        <span className={`w-24 text-sm font-medium ${labelClass}`}>{label}</span>
+        <span className="text-gray-500 text-sm">No votes recorded</span>
+      </div>
+    );
+  }
+
+  const yeaPct = (yea / total) * 100;
+  const nayPct = (nay / total) * 100;
+
+  return (
+    <div className="flex items-center gap-4">
+      <span className={`w-24 text-sm font-medium ${labelClass}`}>{label}</span>
+      <div className="flex-1 flex items-center gap-2">
+        <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden flex">
+          <div
+            className="h-full bg-green-500 flex items-center justify-center text-xs text-white font-medium"
+            style={{ width: `${yeaPct}%` }}
+          >
+            {yea > 0 ? yea : ''}
+          </div>
+          <div
+            className="h-full bg-red-500 flex items-center justify-center text-xs text-white font-medium"
+            style={{ width: `${nayPct}%` }}
+          >
+            {nay > 0 ? nay : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
