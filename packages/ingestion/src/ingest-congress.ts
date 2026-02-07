@@ -23,6 +23,8 @@ interface IngestEvent extends Partial<ScheduledEvent> {
   fetchBillDetails?: boolean;
   billChunkStart?: number;
   billChunkSize?: number;
+  // Backfill party breakdown for all existing roll calls
+  backfillPartyBreakdown?: boolean;
 }
 
 export const handler: Handler<IngestEvent> = async (event) => {
@@ -89,7 +91,14 @@ export const handler: Handler<IngestEvent> = async (event) => {
       results.votes = voteResult;
     }
 
-    logger.info({ results }, 'Ingestion completed');
+    // Backfill party breakdown for all roll calls (one-time fix)
+    let backfillResult = { updated: 0, errors: 0 };
+    if (event.backfillPartyBreakdown) {
+      logger.info('Backfilling party breakdown for all roll calls');
+      backfillResult = await backfillAllPartyBreakdowns();
+    }
+
+    logger.info({ results, backfillResult }, 'Ingestion completed');
 
     return {
       statusCode: 200,
@@ -98,6 +107,7 @@ export const handler: Handler<IngestEvent> = async (event) => {
         mode,
         congress,
         results,
+        backfillResult,
         // Include chunking info for Step Functions
         voteChunking: {
           rollCallsProcessed: voteResult.rollCallsProcessed,
@@ -146,4 +156,91 @@ async function updateSyncTime(entity: string): Promise<void> {
      ON CONFLICT (entity) DO UPDATE SET last_sync_at = NOW()`,
     [entity]
   );
+}
+
+/**
+ * Backfill party breakdown for all roll calls that have null values.
+ * This is a one-time fix for roll calls that were ingested before
+ * party breakdown calculation was added.
+ */
+async function backfillAllPartyBreakdowns(): Promise<{ updated: number; errors: number }> {
+  const result = { updated: 0, errors: 0 };
+
+  // Find all roll calls with null party breakdown
+  const rollCalls = await query<{ id: string; roll_call_number: number; chamber: string }>(
+    `SELECT id, roll_call_number, chamber
+     FROM voting.roll_calls
+     WHERE republican_yea IS NULL
+     ORDER BY vote_date DESC`
+  );
+
+  logger.info({ count: rollCalls.length }, 'Found roll calls needing party breakdown backfill');
+
+  for (const rollCall of rollCalls) {
+    try {
+      // Count votes for this roll call
+      const countResult = await query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM voting.votes WHERE roll_call_id = $1`,
+        [rollCall.id]
+      );
+      const voteCount = parseInt(countResult[0]?.count || '0', 10);
+
+      if (voteCount === 0) {
+        continue; // Skip roll calls with no votes
+      }
+
+      // Update party breakdown
+      const updateResult = await query<{
+        republican_yea: number;
+        republican_nay: number;
+        democrat_yea: number;
+        democrat_nay: number;
+      }>(
+        `UPDATE voting.roll_calls
+         SET
+           republican_yea = (
+             SELECT COUNT(*) FROM voting.votes v
+             JOIN members.members m ON m.id = v.member_id
+             WHERE v.roll_call_id = $1 AND v.position = 'Yea' AND m.party = 'Republican'
+           ),
+           republican_nay = (
+             SELECT COUNT(*) FROM voting.votes v
+             JOIN members.members m ON m.id = v.member_id
+             WHERE v.roll_call_id = $1 AND v.position = 'Nay' AND m.party = 'Republican'
+           ),
+           democrat_yea = (
+             SELECT COUNT(*) FROM voting.votes v
+             JOIN members.members m ON m.id = v.member_id
+             WHERE v.roll_call_id = $1 AND v.position = 'Yea' AND m.party = 'Democrat'
+           ),
+           democrat_nay = (
+             SELECT COUNT(*) FROM voting.votes v
+             JOIN members.members m ON m.id = v.member_id
+             WHERE v.roll_call_id = $1 AND v.position = 'Nay' AND m.party = 'Democrat'
+           )
+         WHERE id = $1
+         RETURNING republican_yea, republican_nay, democrat_yea, democrat_nay`,
+        [rollCall.id]
+      );
+
+      if (updateResult[0]) {
+        result.updated++;
+        if (result.updated % 100 === 0) {
+          logger.info(
+            { updated: result.updated, total: rollCalls.length },
+            'Party breakdown backfill progress'
+          );
+        }
+      }
+    } catch (error) {
+      logger.error(
+        { error, rollCallId: rollCall.id, rollCallNumber: rollCall.roll_call_number },
+        'Failed to backfill party breakdown'
+      );
+      result.errors++;
+    }
+  }
+
+  logger.info({ result }, 'Party breakdown backfill completed');
+  return result;
 }
