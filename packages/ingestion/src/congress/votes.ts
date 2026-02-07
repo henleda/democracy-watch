@@ -156,8 +156,12 @@ async function ingestChamberVotes(
             result.updated += memberResult.updated;
             result.errors += memberResult.errors;
 
-            // Update party breakdown counts
-            await updatePartyBreakdown(rollCallId);
+            // Calculate and store party breakdown (non-fatal if fails)
+            try {
+              await updatePartyBreakdown(rollCallId);
+            } catch (error) {
+              logger.warn({ error, rollCallId }, 'Failed to update party breakdown');
+            }
 
             processedCount++;
             result.rollCallsProcessed++;
@@ -353,6 +357,10 @@ async function upsertRollCallFromClerk(
     clerkVote.notVotingTotal,
   ]);
 
+  if (!result[0]?.id) {
+    throw new Error(`Failed to upsert roll call ${clerkVote.rollCallNumber}`);
+  }
+
   return { id: result[0].id, billId };
 }
 
@@ -430,7 +438,9 @@ async function upsertMemberVotesFromClerk(
 }
 
 /**
- * Update party breakdown counts for a roll call
+ * Calculate and update party breakdown for a roll call.
+ * Note: These are point-in-time snapshots calculated after initial vote insertion.
+ * If votes are later corrected, these counts may become stale.
  */
 async function updatePartyBreakdown(rollCallId: string): Promise<void> {
   const sql = `
@@ -673,8 +683,12 @@ async function ingestSenateVotes(
         result.updated += memberResult.updated;
         result.errors += memberResult.errors;
 
-        // Update party breakdown counts
-        await updatePartyBreakdown(rollCallId);
+        // Calculate and store party breakdown (non-fatal if fails)
+        try {
+          await updatePartyBreakdown(rollCallId);
+        } catch (error) {
+          logger.warn({ error, rollCallId }, 'Failed to update party breakdown');
+        }
 
         result.rollCallsProcessed++;
 
@@ -782,6 +796,10 @@ async function upsertRollCallFromSenate(
     senateVote.presentTotal,
     senateVote.notVotingTotal,
   ]);
+
+  if (!result[0]?.id) {
+    throw new Error(`Failed to upsert roll call ${senateVote.rollCallNumber}`);
+  }
 
   return { id: result[0].id, billId };
 }
