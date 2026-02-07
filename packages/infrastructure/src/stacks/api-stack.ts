@@ -19,6 +19,7 @@ export class ApiStack extends cdk.Stack {
   public readonly api: apigateway.RestApi;
   public readonly membersHandler: lambda.Function;
   public readonly billsHandler: lambda.Function;
+  public readonly statsHandler: lambda.Function;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
@@ -71,6 +72,26 @@ export class ApiStack extends cdk.Stack {
       }),
       memorySize: 512,
       timeout: cdk.Duration.seconds(30),
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      securityGroups: [lambdaSecurityGroup],
+      role: lambdaRole,
+      environment: {
+        NODE_ENV: config.envName,
+        DATABASE_SECRET_ARN: databaseSecretArn,
+      },
+    });
+
+    // Stats API Lambda handler
+    this.statsHandler = new lambda.Function(this, 'StatsHandler', {
+      functionName: `democracy-watch-stats-${config.envName}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'stats.handler',
+      code: lambda.Code.fromAsset('../api/dist', {
+        exclude: ['*.ts', '*.map'],
+      }),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(10),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [lambdaSecurityGroup],
@@ -149,6 +170,15 @@ export class ApiStack extends cdk.Stack {
     // GET /bills/{billId} - get bill by ID
     const billById = bills.addResource('{billId}');
     billById.addMethod('GET', billsIntegration);
+
+    // Stats API routes
+    const statsIntegration = new apigateway.LambdaIntegration(this.statsHandler, {
+      requestTemplates: { 'application/json': '{ "statusCode": "200" }' },
+    });
+
+    // GET /stats - platform statistics
+    const stats = this.api.root.addResource('stats');
+    stats.addMethod('GET', statsIntegration);
 
     // Outputs
     new cdk.CfnOutput(this, 'ApiEndpoint', {

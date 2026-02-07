@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "esbuild src/members.ts src/bills.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
+    "build": "esbuild src/members.ts src/bills.ts src/stats.ts --bundle --platform=node --target=node20 --outdir=dist --external:pg-native",
     "build:types": "tsc --emitDeclarationOnly",
     "clean": "rm -rf dist"
   },
