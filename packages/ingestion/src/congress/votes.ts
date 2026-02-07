@@ -143,17 +143,21 @@ async function ingestChamberVotes(
 
           if (clerkVote) {
             // Upsert roll call with full totals from XML
-            await upsertRollCallFromClerk(clerkVote, vote);
+            const { id: rollCallId, billId } = await upsertRollCallFromClerk(clerkVote, vote);
             result.inserted++;
 
             // Upsert individual member votes
             const memberResult = await upsertMemberVotesFromClerk(
               clerkVote,
-              chamber
+              rollCallId,
+              billId
             );
             result.inserted += memberResult.inserted;
             result.updated += memberResult.updated;
             result.errors += memberResult.errors;
+
+            // Update party breakdown counts
+            await updatePartyBreakdown(rollCallId);
 
             processedCount++;
             result.rollCallsProcessed++;
@@ -300,7 +304,7 @@ async function upsertRollCallFromList(
 async function upsertRollCallFromClerk(
   clerkVote: HouseClerkVote,
   listVote: HouseRollCallVote
-): Promise<void> {
+): Promise<{ id: string; billId: string | null }> {
   // Try to find associated bill if legislation info is present
   let billId: string | null = null;
   if (listVote.legislationType && listVote.legislationNumber) {
@@ -331,9 +335,10 @@ async function upsertRollCallFromClerk(
       nay_total = EXCLUDED.nay_total,
       present_total = EXCLUDED.present_total,
       not_voting_total = EXCLUDED.not_voting_total
+    RETURNING id
   `;
 
-  await query(sql, [
+  const result = await query<{ id: string }>(sql, [
     clerkVote.congress,
     clerkVote.chamber,
     clerkVote.session,
@@ -347,6 +352,8 @@ async function upsertRollCallFromClerk(
     clerkVote.presentTotal,
     clerkVote.notVotingTotal,
   ]);
+
+  return { id: result[0].id, billId };
 }
 
 /**
@@ -354,22 +361,12 @@ async function upsertRollCallFromClerk(
  */
 async function upsertMemberVotesFromClerk(
   clerkVote: HouseClerkVote,
-  chamber: string
+  rollCallId: string,
+  billId: string | null
 ): Promise<IngestResult> {
   const result: IngestResult = { inserted: 0, updated: 0, errors: 0 };
   let membersNotFound = 0;
   let sampleMissingIds: string[] = [];
-
-  // Get roll call ID
-  const rollCall = await queryOne<{ id: string }>(
-    `SELECT id FROM voting.roll_calls WHERE congress = $1 AND chamber = $2 AND roll_call_number = $3`,
-    [clerkVote.congress, chamber, clerkVote.rollCallNumber]
-  );
-
-  if (!rollCall) {
-    logger.error({ rollCallNumber: clerkVote.rollCallNumber }, 'Roll call not found after insert');
-    return result;
-  }
 
   for (const memberVote of clerkVote.memberVotes) {
     try {
@@ -388,18 +385,19 @@ async function upsertMemberVotesFromClerk(
       }
 
       const sql = `
-        INSERT INTO voting.votes (member_id, roll_call_id, position, vote_date)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO voting.votes (member_id, roll_call_id, position, vote_date, bill_id)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (member_id, roll_call_id)
-        DO UPDATE SET position = EXCLUDED.position
+        DO UPDATE SET position = EXCLUDED.position, bill_id = EXCLUDED.bill_id
         RETURNING (xmax = 0) AS inserted
       `;
 
       const upsertResult = await query<{ inserted: boolean }>(sql, [
         member.id,
-        rollCall.id,
+        rollCallId,
         memberVote.position,
         clerkVote.voteDate,
+        billId,
       ]);
 
       if (upsertResult[0]?.inserted) {
@@ -429,6 +427,38 @@ async function upsertMemberVotesFromClerk(
   }
 
   return result;
+}
+
+/**
+ * Update party breakdown counts for a roll call
+ */
+async function updatePartyBreakdown(rollCallId: string): Promise<void> {
+  const sql = `
+    UPDATE voting.roll_calls
+    SET
+      republican_yea = (
+        SELECT COUNT(*) FROM voting.votes v
+        JOIN members.members m ON m.id = v.member_id
+        WHERE v.roll_call_id = $1 AND v.position = 'Yea' AND m.party = 'Republican'
+      ),
+      republican_nay = (
+        SELECT COUNT(*) FROM voting.votes v
+        JOIN members.members m ON m.id = v.member_id
+        WHERE v.roll_call_id = $1 AND v.position = 'Nay' AND m.party = 'Republican'
+      ),
+      democrat_yea = (
+        SELECT COUNT(*) FROM voting.votes v
+        JOIN members.members m ON m.id = v.member_id
+        WHERE v.roll_call_id = $1 AND v.position = 'Yea' AND m.party = 'Democrat'
+      ),
+      democrat_nay = (
+        SELECT COUNT(*) FROM voting.votes v
+        JOIN members.members m ON m.id = v.member_id
+        WHERE v.roll_call_id = $1 AND v.position = 'Nay' AND m.party = 'Democrat'
+      )
+    WHERE id = $1
+  `;
+  await query(sql, [rollCallId]);
 }
 
 async function upsertRollCall(
@@ -634,14 +664,17 @@ async function ingestSenateVotes(
         consecutiveNotFound = 0; // Reset counter on success
 
         // Upsert roll call with full data from XML
-        await upsertRollCallFromSenate(senateVote, {});
+        const { id: rollCallId, billId } = await upsertRollCallFromSenate(senateVote, {});
         result.inserted++;
 
         // Upsert individual member votes
-        const memberResult = await upsertMemberVotesFromSenate(senateVote);
+        const memberResult = await upsertMemberVotesFromSenate(senateVote, rollCallId, billId);
         result.inserted += memberResult.inserted;
         result.updated += memberResult.updated;
         result.errors += memberResult.errors;
+
+        // Update party breakdown counts
+        await updatePartyBreakdown(rollCallId);
 
         result.rollCallsProcessed++;
 
@@ -701,7 +734,7 @@ async function ingestSenateVotes(
 async function upsertRollCallFromSenate(
   senateVote: SenateClerkVote,
   listVote: { legislationType?: string; legislationNumber?: string }
-): Promise<void> {
+): Promise<{ id: string; billId: string | null }> {
   // Try to find associated bill if legislation info is present
   let billId: string | null = null;
   if (listVote.legislationType && listVote.legislationNumber) {
@@ -732,9 +765,10 @@ async function upsertRollCallFromSenate(
       nay_total = EXCLUDED.nay_total,
       present_total = EXCLUDED.present_total,
       not_voting_total = EXCLUDED.not_voting_total
+    RETURNING id
   `;
 
-  await query(sql, [
+  const result = await query<{ id: string }>(sql, [
     senateVote.congress,
     senateVote.chamber,
     senateVote.session,
@@ -748,6 +782,8 @@ async function upsertRollCallFromSenate(
     senateVote.presentTotal,
     senateVote.notVotingTotal,
   ]);
+
+  return { id: result[0].id, billId };
 }
 
 /**
@@ -755,25 +791,13 @@ async function upsertRollCallFromSenate(
  * Uses LIS Member ID for matching, falls back to name+state
  */
 async function upsertMemberVotesFromSenate(
-  senateVote: SenateClerkVote
+  senateVote: SenateClerkVote,
+  rollCallId: string,
+  billId: string | null
 ): Promise<IngestResult> {
   const result: IngestResult = { inserted: 0, updated: 0, errors: 0 };
   let membersNotFound = 0;
   const sampleMissingIds: string[] = [];
-
-  // Get roll call ID
-  const rollCall = await queryOne<{ id: string }>(
-    `SELECT id FROM voting.roll_calls WHERE congress = $1 AND chamber = $2 AND roll_call_number = $3`,
-    [senateVote.congress, 'senate', senateVote.rollCallNumber]
-  );
-
-  if (!rollCall) {
-    logger.error(
-      { rollCallNumber: senateVote.rollCallNumber },
-      'Senate roll call not found after insert'
-    );
-    return result;
-  }
 
   for (const memberVote of senateVote.memberVotes) {
     try {
@@ -820,18 +844,19 @@ async function upsertMemberVotesFromSenate(
       }
 
       const sql = `
-        INSERT INTO voting.votes (member_id, roll_call_id, position, vote_date)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO voting.votes (member_id, roll_call_id, position, vote_date, bill_id)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (member_id, roll_call_id)
-        DO UPDATE SET position = EXCLUDED.position
+        DO UPDATE SET position = EXCLUDED.position, bill_id = EXCLUDED.bill_id
         RETURNING (xmax = 0) AS inserted
       `;
 
       const upsertResult = await query<{ inserted: boolean }>(sql, [
         member.id,
-        rollCall.id,
+        rollCallId,
         memberVote.position,
         senateVote.voteDate,
+        billId,
       ]);
 
       if (upsertResult[0]?.inserted) {
